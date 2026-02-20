@@ -1,0 +1,53 @@
+# Orquestador Multi-Repo
+
+Este workspace es un **coordinador central** que gestiona trabajo entre {{N}} repositorios externos.
+No contiene codigo de aplicacion propio; su rol es orquestar, documentar y consolidar.
+
+## Repos asociados
+
+| Alias | Repo | Ruta | Stack |
+|-------|------|------|-------|
+{{repos_table}}
+
+## Reglas de salida
+
+- Documentacion, reportes, comparativas y artefactos: `./docs/<tema>/`
+- Scripts utilitarios: `./scripts/`
+- **Prohibido** crear documentacion o artefactos dentro de los repos externos.
+  Solo codigo y configuracion van en los repos externos.
+
+## Repos (acceso directo)
+
+La carpeta `repos/` contiene symlinks a cada repositorio:
+
+| Alias | Apunta a |
+|-------|----------|
+{{symlinks_table}}
+
+Estos enlaces permiten navegar los repos directamente desde el workspace sin cambiar de directorio.
+
+## Protocolo cross-repo
+
+1. **Planificar primero**: antes de tocar codigo en cualquier repo, documentar el plan.
+2. **Cambios minimos y testeables**: preferir diffs pequenos y verificables.
+3. **Ante incertidumbre**: proponer diff/patch para revision antes de aplicar.
+4. **Reporte obligatorio**: al finalizar cualquier tarea, reportar:
+   - Archivos tocados (ruta completa)
+   - Motivo del cambio
+   - Comandos de verificacion (build, test, lint)
+
+## Compatibilidad de herramientas
+
+- **Codex**: usa `AGENTS.md` y los agentes en `.agents/`.
+- **Claude Code**: usa `CLAUDE.md`, `.claude/agents/` y `.claude/settings.json`.
+- El coordinador puede delegar en paralelo cuando haya tareas independientes por repo.
+
+## Agentes disponibles
+
+| Agente | Rol | Scope |
+|--------|-----|-------|
+{{agents_table}}
+
+## currentDate
+
+Today's date is {{today}}.

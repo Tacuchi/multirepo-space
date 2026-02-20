@@ -1,0 +1,755 @@
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+  multirepo-space - Multi-repo workspace manager for AI coding agents (PowerShell)
+.DESCRIPTION
+  Cross-platform port of multirepo-space for Windows native PowerShell.
+  Subcommands: setup, add, remove, status
+#>
+
+param(
+  [Parameter(Position = 0)]
+  [string]$Command,
+  [switch]$Yes,
+  [Alias('n')]
+  [switch]$DryRun,
+  [Alias('v')]
+  [switch]$Verbose_,
+  [Alias('h')]
+  [switch]$Help,
+  [switch]$Version_,
+  [Parameter(ValueFromRemainingArguments)]
+  [string[]]$RemainingArgs
+)
+
+$ErrorActionPreference = 'Stop'
+$ScriptVersion = '1.0.0'
+$ScriptDir = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
+$LibDir = Join-Path $ScriptDir 'lib'
+$TmplDir = Join-Path $ScriptDir 'templates'
+
+function Write-Info  { param([string]$Msg) Write-Host "[info] $Msg" -ForegroundColor Blue }
+function Write-Warn  { param([string]$Msg) Write-Host "[warn] $Msg" -ForegroundColor Yellow }
+function Write-Err   { param([string]$Msg) Write-Host "[error] $Msg" -ForegroundColor Red }
+function Write-Ok    { param([string]$Msg) Write-Host "[ok] $Msg" -ForegroundColor Green }
+
+function Write-Verbose_ {
+  param([string]$Msg)
+  if ($script:Verbose_) { Write-Info $Msg }
+}
+
+function Confirm-Action {
+  param([string]$Msg = 'Continue?')
+  if ($script:Yes) { return $true }
+  $answer = Read-Host "$Msg [y/N]"
+  return $answer -match '^[Yy]$'
+}
+
+function Get-Template {
+  param([string]$TmplFile)
+  if (-not (Test-Path $TmplFile)) { throw "Template not found: $TmplFile" }
+  Get-Content -Path $TmplFile -Raw
+}
+
+function Write-OutputFile {
+  param([string]$Dest, [string]$Content)
+  if ($script:DryRun) {
+    Write-Info "[dry-run] Would write: $Dest"
+    return
+  }
+  $dir = Split-Path -Parent $Dest
+  if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+  Set-Content -Path $Dest -Value $Content -NoNewline
+  Write-Verbose_ "Written: $Dest"
+}
+
+# --- Stack Detection ---
+
+function Invoke-DetectStack {
+  param([string]$RepoPath)
+
+  $result = @{
+    PrimaryTech = ''
+    Framework   = ''
+    StackCsv    = ''
+    VerifyCmds  = ''
+    StackParts  = [System.Collections.ArrayList]::new()
+  }
+
+  $pkgPath = Join-Path $RepoPath 'package.json'
+  if (Test-Path $pkgPath) {
+    $pkg = Get-Content -Path $pkgPath -Raw
+    if ($pkg -match '"@angular/core"') {
+      $ver = ''
+      if ($pkg -match '"@angular/core"\s*:\s*"[~^]?(\d+)') { $ver = $Matches[1] }
+      $result.PrimaryTech = 'TypeScript'
+      $result.Framework = "Angular $ver"
+      $result.VerifyCmds = 'ng build, ng test, ng lint'
+      [void]$result.StackParts.Add("Angular $ver")
+    }
+    elseif ($pkg -match '"next"') {
+      $result.PrimaryTech = 'TypeScript/JS'; $result.Framework = 'Next.js'
+      $result.VerifyCmds = 'npm run build, npm run lint'
+      [void]$result.StackParts.Add('Next.js')
+    }
+    elseif ($pkg -match '"react"') {
+      $result.PrimaryTech = 'TypeScript/JS'; $result.Framework = 'React'
+      $result.VerifyCmds = 'npm run build, npm test'
+      [void]$result.StackParts.Add('React')
+    }
+    elseif ($pkg -match '"vue"') {
+      $result.PrimaryTech = 'TypeScript/JS'; $result.Framework = 'Vue.js'
+      $result.VerifyCmds = 'npm run build, npm test'
+      [void]$result.StackParts.Add('Vue.js')
+    }
+    elseif ($pkg -match '"svelte"') {
+      $result.PrimaryTech = 'TypeScript/JS'; $result.Framework = 'Svelte'
+      $result.VerifyCmds = 'npm run build, npm run check'
+      [void]$result.StackParts.Add('Svelte')
+    }
+    elseif ($pkg -match '"nuxt"') {
+      $result.PrimaryTech = 'TypeScript/JS'; $result.Framework = 'Nuxt'
+      $result.VerifyCmds = 'npm run build, npm run lint'
+      [void]$result.StackParts.Add('Nuxt')
+    }
+  }
+
+  $pomPath = Join-Path $RepoPath 'pom.xml'
+  if (Test-Path $pomPath) {
+    $pom = Get-Content -Path $pomPath -Raw
+    if ($pom -match 'spring-boot-starter') {
+      $sbVersion = ''
+      if ($pom -match 'spring-boot-starter-parent[\s\S]*?<version>([^<]+)') {
+        $sbVersion = ($Matches[1] -split '\.')[0..1] -join '.'
+      }
+      $javaVersion = ''
+      if ($pom -match '<java\.version>([^<]+)') { $javaVersion = $Matches[1] }
+      elseif ($pom -match '<maven\.compiler\.source>([^<]+)') { $javaVersion = $Matches[1] }
+
+      $jvSuffix = if ($javaVersion) { " $javaVersion" } else { '' }
+      $sbSuffix = if ($sbVersion) { " $sbVersion" } else { '' }
+      $result.PrimaryTech = "Java$jvSuffix"
+      $result.Framework = "Spring Boot$sbSuffix + Maven"
+      $result.VerifyCmds = 'mvn compile, mvn test, mvn verify'
+      [void]$result.StackParts.Add("Spring Boot$sbSuffix")
+      [void]$result.StackParts.Add('Maven')
+      if ($javaVersion) { [void]$result.StackParts.Add("Java $javaVersion") }
+
+      if ($pom -match 'spring-boot-starter-data-jpa') { [void]$result.StackParts.Add('JPA') }
+      if ($pom -match 'spring-cloud-starter-openfeign') { [void]$result.StackParts.Add('Feign') }
+      if ($pom -match 'postgresql') { [void]$result.StackParts.Add('PostgreSQL') }
+      if ($pom -match 'mysql-connector') { [void]$result.StackParts.Add('MySQL') }
+      if ($pom -match 'spring-boot-starter-data-mongodb') { [void]$result.StackParts.Add('MongoDB') }
+    }
+  }
+
+  $gradleKts = Join-Path $RepoPath 'build.gradle.kts'
+  $gradleGroovy = Join-Path $RepoPath 'build.gradle'
+  $gradleFile = if (Test-Path $gradleKts) { $gradleKts } elseif (Test-Path $gradleGroovy) { $gradleGroovy } else { $null }
+  if ($gradleFile) {
+    $gradle = Get-Content -Path $gradleFile -Raw
+    if ($gradle -match 'org\.springframework\.boot' -and -not $result.PrimaryTech) {
+      $result.PrimaryTech = if ($gradleFile -like '*.kts') { 'Kotlin' } else { 'Java/Kotlin' }
+      $result.Framework = 'Spring Boot + Gradle'
+      $result.VerifyCmds = 'gradle build, gradle test'
+      [void]$result.StackParts.Add('Spring Boot')
+      [void]$result.StackParts.Add('Gradle')
+    }
+  }
+
+  $pyprojectPath = Join-Path $RepoPath 'pyproject.toml'
+  $requirementsPath = Join-Path $RepoPath 'requirements.txt'
+  if (Test-Path $pyprojectPath) {
+    $pyproj = Get-Content -Path $pyprojectPath -Raw
+    if ($pyproj -match '(?i)django') {
+      $result.PrimaryTech = 'Python'; $result.Framework = 'Django'
+      $result.VerifyCmds = 'python manage.py test'
+      [void]$result.StackParts.Add('Django')
+    }
+    elseif ($pyproj -match '(?i)fastapi') {
+      $result.PrimaryTech = 'Python'; $result.Framework = 'FastAPI'
+      $result.VerifyCmds = 'pytest'
+      [void]$result.StackParts.Add('FastAPI')
+    }
+    elseif ($pyproj -match '(?i)flask') {
+      $result.PrimaryTech = 'Python'; $result.Framework = 'Flask'
+      $result.VerifyCmds = 'pytest'
+      [void]$result.StackParts.Add('Flask')
+    }
+  }
+  elseif (Test-Path $requirementsPath) {
+    $reqs = Get-Content -Path $requirementsPath -Raw
+    if ($reqs -match '(?i)django') {
+      $result.PrimaryTech = 'Python'; $result.Framework = 'Django'
+      $result.VerifyCmds = 'python manage.py test'
+      [void]$result.StackParts.Add('Django')
+    }
+    elseif ($reqs -match '(?i)fastapi') {
+      $result.PrimaryTech = 'Python'; $result.Framework = 'FastAPI'
+      $result.VerifyCmds = 'pytest'
+      [void]$result.StackParts.Add('FastAPI')
+    }
+    elseif ($reqs -match '(?i)flask') {
+      $result.PrimaryTech = 'Python'; $result.Framework = 'Flask'
+      $result.VerifyCmds = 'pytest'
+      [void]$result.StackParts.Add('Flask')
+    }
+  }
+
+  if ((Test-Path (Join-Path $RepoPath 'go.mod')) -and -not $result.PrimaryTech) {
+    $goMod = Get-Content -Path (Join-Path $RepoPath 'go.mod') -Head 5
+    $goVer = ''
+    foreach ($line in $goMod) {
+      if ($line -match '^go\s+(.+)') { $goVer = $Matches[1]; break }
+    }
+    $goSuffix = if ($goVer) { " $goVer" } else { '' }
+    $result.PrimaryTech = "Go$goSuffix"
+    $result.VerifyCmds = 'go build ./..., go test ./...'
+    [void]$result.StackParts.Add("Go$goSuffix")
+  }
+
+  if ((Test-Path (Join-Path $RepoPath 'Cargo.toml')) -and -not $result.PrimaryTech) {
+    $result.PrimaryTech = 'Rust'
+    $result.VerifyCmds = 'cargo build, cargo test'
+    [void]$result.StackParts.Add('Rust')
+  }
+
+  $pubspecPath = Join-Path $RepoPath 'pubspec.yaml'
+  if ((Test-Path $pubspecPath) -and -not $result.PrimaryTech) {
+    $pubspec = Get-Content -Path $pubspecPath -Raw
+    if ($pubspec -match 'flutter') {
+      $result.PrimaryTech = 'Dart'; $result.Framework = 'Flutter'
+      $result.VerifyCmds = 'flutter analyze, flutter test'
+      [void]$result.StackParts.Add('Flutter')
+    }
+    else {
+      $result.PrimaryTech = 'Dart'
+      $result.VerifyCmds = 'dart analyze, dart test'
+      [void]$result.StackParts.Add('Dart')
+    }
+  }
+
+  if ((Get-ChildItem -Path $RepoPath -Filter '*.csproj' -ErrorAction SilentlyContinue) -and -not $result.PrimaryTech) {
+    $result.PrimaryTech = 'C#'; $result.Framework = '.NET'
+    $result.VerifyCmds = 'dotnet build, dotnet test'
+    [void]$result.StackParts.Add('.NET')
+  }
+
+  # Supplementary
+  if (Test-Path (Join-Path $RepoPath 'tsconfig.json')) {
+    if ($result.StackParts -notcontains 'TypeScript' -and $result.PrimaryTech -ne 'TypeScript') {
+      [void]$result.StackParts.Add('TypeScript')
+    }
+  }
+
+  $srcPath = Join-Path $RepoPath 'src'
+  if (Test-Path $srcPath) {
+    if (Get-ChildItem -Path $srcPath -Filter '*.scss' -Recurse -ErrorAction SilentlyContinue) {
+      [void]$result.StackParts.Add('SCSS')
+    }
+  }
+
+  if (Get-ChildItem -Path $RepoPath -Filter 'tailwind.config.*' -ErrorAction SilentlyContinue) {
+    [void]$result.StackParts.Add('Tailwind CSS')
+  }
+
+  if (Test-Path $pkgPath) {
+    $pkg = Get-Content -Path $pkgPath -Raw
+    if ($pkg -match '"bootstrap"') { [void]$result.StackParts.Add('Bootstrap') }
+    if ($pkg -match '"@angular/material"') { [void]$result.StackParts.Add('Angular Material') }
+  }
+
+  if (Test-Path (Join-Path $RepoPath 'Dockerfile')) {
+    [void]$result.StackParts.Add('Docker')
+  }
+
+  # Fallback
+  if (-not $result.PrimaryTech) {
+    $result.PrimaryTech = 'Generic'
+  }
+
+  # Build CSV
+  if ($result.StackParts.Count -gt 0) {
+    $result.StackCsv = $result.StackParts -join ', '
+  }
+  else {
+    $result.StackCsv = $result.PrimaryTech
+  }
+
+  return $result
+}
+
+function Get-RepoAlias {
+  param([string]$RepoPath)
+  $alias = Split-Path -Leaf $RepoPath
+  $alias = $alias -replace '[_.]', '-'
+  if ($alias.Length -gt 30) { $alias = $alias.Substring(0, 30) }
+  return $alias
+}
+
+# --- Managed Block ---
+
+function Sync-ManagedBlock {
+  param([string]$TargetFile, [string]$Block)
+
+  $startMarker = '<!-- MULTIREPO_SPACE_MANAGED:START -->'
+  $endMarker = '<!-- MULTIREPO_SPACE_MANAGED:END -->'
+
+  if ($script:DryRun) {
+    Write-Info "[dry-run] Would sync managed block in: $TargetFile"
+    return
+  }
+
+  if (Test-Path $TargetFile) {
+    $content = Get-Content -Path $TargetFile -Raw
+    if ($content -match [regex]::Escape($startMarker)) {
+      $pattern = "(?s)$([regex]::Escape($startMarker)).*?$([regex]::Escape($endMarker))"
+      $content = $content -replace $pattern, $Block.TrimEnd()
+      Set-Content -Path $TargetFile -Value $content -NoNewline
+    }
+    else {
+      Add-Content -Path $TargetFile -Value "`n$Block"
+    }
+  }
+  else {
+    Set-Content -Path $TargetFile -Value $Block -NoNewline
+  }
+  Write-Verbose_ "Synced managed block: $TargetFile"
+}
+
+# --- setup ---
+
+function Invoke-Setup {
+  param([string[]]$Args_)
+
+  $workspacePath = Resolve-Path $Args_[0] | Select-Object -ExpandProperty Path
+  $repoPaths = @()
+  for ($i = 1; $i -lt $Args_.Count; $i++) {
+    $repoPaths += (Resolve-Path $Args_[$i] | Select-Object -ExpandProperty Path)
+  }
+
+  if (-not (Test-Path $workspacePath -PathType Container)) {
+    throw "Workspace path does not exist: $workspacePath"
+  }
+  foreach ($rp in $repoPaths) {
+    if (-not (Test-Path $rp -PathType Container)) { throw "Repo path does not exist: $rp" }
+  }
+
+  $settingsJson = Join-Path $workspacePath '.claude' 'settings.json'
+  $agentsMd = Join-Path $workspacePath 'AGENTS.md'
+  if ((Test-Path $settingsJson) -or (Test-Path $agentsMd)) {
+    Write-Warn 'Workspace already has configuration files.'
+    if (-not (Confirm-Action 'Overwrite existing configuration?')) { Write-Info 'Aborted.'; return }
+  }
+
+  $workspaceName = Split-Path -Leaf $workspacePath
+  $today = Get-Date -Format 'yyyy-MM-dd'
+  $N = $repoPaths.Count
+
+  Write-Info "Detecting stacks for $N repos..."
+
+  $aliases = @()
+  $primaryTechs = @()
+  $stackCsvs = @()
+  $verifyCmdsList = @()
+
+  foreach ($rp in $repoPaths) {
+    $det = Invoke-DetectStack -RepoPath $rp
+    $alias = Get-RepoAlias -RepoPath $rp
+    $aliases += $alias
+    $primaryTechs += $det.PrimaryTech
+    $stackCsvs += $det.StackCsv
+    $verifyCmdsList += $det.VerifyCmds
+  }
+
+  Write-Host ''
+  Write-Info "Workspace: $workspacePath"
+  Write-Host ''
+  '{0,-4} {1,-25} {2,-45} {3}' -f '#', 'Alias', 'Path', 'Stack' | Write-Host
+  '{0,-4} {1,-25} {2,-45} {3}' -f '---', '-------------------------', '---------------------------------------------', '--------------------' | Write-Host
+  for ($i = 0; $i -lt $N; $i++) {
+    '{0,-4} {1,-25} {2,-45} {3}' -f ($i + 1), $aliases[$i], $repoPaths[$i], $stackCsvs[$i] | Write-Host
+  }
+  Write-Host ''
+
+  if (-not (Confirm-Action 'Proceed with this configuration?')) { Write-Info 'Aborted.'; return }
+
+  Write-Info 'Generating workspace files...'
+
+  # 1. settings.json
+  $additionalDirs = @()
+  for ($i = 0; $i -lt $N; $i++) {
+    $comma = if ($i -lt ($N - 1)) { ',' } else { '' }
+    $additionalDirs += "    `"$($repoPaths[$i])`"$comma"
+  }
+  $settingsContent = Get-Template (Join-Path $TmplDir 'settings.json.tmpl')
+  $settingsContent = $settingsContent -replace '\{\{additional_directories\}\}', ($additionalDirs -join "`n")
+  Write-OutputFile (Join-Path $workspacePath '.claude' 'settings.json') $settingsContent
+
+  # 2. AGENTS.md + CLAUDE.md
+  $reposTable = ''
+  for ($i = 0; $i -lt $N; $i++) {
+    $repoBase = Split-Path -Leaf $repoPaths[$i]
+    $reposTable += "| **Repo $($i+1)** ($($aliases[$i])) | $repoBase | ``$($repoPaths[$i])`` | $($stackCsvs[$i]) |`n"
+  }
+
+  $symlinksTable = ''
+  for ($i = 0; $i -lt $N; $i++) {
+    $symlinksTable += "| $($aliases[$i]) | ``$($repoPaths[$i])`` |`n"
+  }
+
+  $agentsTable = "| ``coordinator`` | Orquesta trabajo multi-repo, delega a especialistas | Workspace completo |`n"
+  for ($i = 0; $i -lt $N; $i++) {
+    $agentsTable += "| ``$($aliases[$i])`` | Especialista $($primaryTechs[$i]) | Repo $($i+1) |`n"
+  }
+
+  $instructions = Get-Template (Join-Path $TmplDir 'workspace-instructions.md.tmpl')
+  $instructions = $instructions -replace '\{\{N\}\}', $N
+  $instructions = $instructions -replace '\{\{repos_table\}\}', $reposTable
+  $instructions = $instructions -replace '\{\{symlinks_table\}\}', $symlinksTable
+  $instructions = $instructions -replace '\{\{agents_table\}\}', $agentsTable
+  $instructions = $instructions -replace '\{\{today\}\}', $today
+
+  Write-OutputFile (Join-Path $workspacePath 'AGENTS.md') $instructions
+  Write-OutputFile (Join-Path $workspacePath 'CLAUDE.md') $instructions
+
+  # 3. Coordinator
+  $specialistList = ''
+  for ($i = 0; $i -lt $N; $i++) {
+    if ($i -gt 0) {
+      $specialistList += if ($i -eq ($N - 1)) { ' y ' } else { ', ' }
+    }
+    $specialistList += "``$($aliases[$i])``"
+  }
+
+  $coordinator = Get-Template (Join-Path $TmplDir 'coordinator.md.tmpl')
+  $coordinator = $coordinator -replace '\{\{N\}\}', $N
+  $coordinator = $coordinator -replace '\{\{specialist_list\}\}', $specialistList
+  Write-OutputFile (Join-Path $workspacePath '.agents' 'coordinator.md') $coordinator
+  Write-OutputFile (Join-Path $workspacePath '.claude' 'agents' 'coordinator.md') $coordinator
+
+  # 4. Specialist agents
+  for ($i = 0; $i -lt $N; $i++) {
+    $stackList = ''
+    foreach ($part in ($stackCsvs[$i] -split ',')) {
+      $part = $part.Trim()
+      $stackList += "- $part`n"
+    }
+
+    $specialist = Get-Template (Join-Path $TmplDir 'specialist.md.tmpl')
+    $specialist = $specialist -replace '\{\{alias\}\}', $aliases[$i]
+    $specialist = $specialist -replace '\{\{primary_tech\}\}', $primaryTechs[$i]
+    $specialist = $specialist -replace '\{\{repo_path\}\}', $repoPaths[$i]
+    $specialist = $specialist -replace '\{\{stack_list\}\}', $stackList
+    $specialist = $specialist -replace '\{\{verify_cmds\}\}', $verifyCmdsList[$i]
+
+    Write-OutputFile (Join-Path $workspacePath '.agents' "repo-$($aliases[$i]).md") $specialist
+    Write-OutputFile (Join-Path $workspacePath '.claude' 'agents' "repo-$($aliases[$i]).md") $specialist
+  }
+
+  # 5. Output directories
+  Write-OutputFile (Join-Path $workspacePath 'docs' '.gitkeep') ''
+  Write-OutputFile (Join-Path $workspacePath 'scripts' '.gitkeep') ''
+
+  # 6. Symlinks
+  Write-Info 'Creating repo symlinks...'
+  $reposDir = Join-Path $workspacePath 'repos'
+  if (-not $script:DryRun) {
+    if (-not (Test-Path $reposDir)) { New-Item -ItemType Directory -Path $reposDir -Force | Out-Null }
+  }
+  for ($i = 0; $i -lt $N; $i++) {
+    $linkPath = Join-Path $reposDir $aliases[$i]
+    if ($script:DryRun) {
+      Write-Info "[dry-run] Would symlink: $linkPath -> $($repoPaths[$i])"
+    }
+    else {
+      if (Test-Path $linkPath) { Remove-Item $linkPath -Force }
+      New-Item -ItemType SymbolicLink -Path $linkPath -Target $repoPaths[$i] | Out-Null
+      Write-Verbose_ "Symlink: $($aliases[$i]) -> $($repoPaths[$i])"
+    }
+  }
+
+  # 7. Sync managed blocks
+  Write-Info 'Syncing managed blocks in repos...'
+  for ($i = 0; $i -lt $N; $i++) {
+    $verifyCmdListStr = ''
+    if ($verifyCmdsList[$i]) {
+      foreach ($vc in ($verifyCmdsList[$i] -split ',')) {
+        $vc = $vc.Trim()
+        $verifyCmdListStr += "- ``$vc```n"
+      }
+    }
+
+    $block = Get-Template (Join-Path $TmplDir 'managed-block.md.tmpl')
+    $block = $block -replace '\{\{workspace_name\}\}', $workspaceName
+    $block = $block -replace '\{\{workspace_path\}\}', $workspacePath
+    $block = $block -replace '\{\{alias\}\}', $aliases[$i]
+    $block = $block -replace '\{\{verify_cmds_list\}\}', $verifyCmdListStr
+
+    foreach ($targetFile in @('AGENTS.md', 'CLAUDE.md')) {
+      Sync-ManagedBlock (Join-Path $repoPaths[$i] $targetFile) $block
+    }
+  }
+
+  # 8. Verify
+  Write-Info 'Verifying workspace integrity...'
+  $fileCount = (Get-ChildItem -Path $workspacePath -Recurse -File -Include '*.md', '*.json', '.gitkeep' -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' }).Count
+  $symlinkCount = (Get-ChildItem -Path $reposDir -ErrorAction SilentlyContinue |
+    Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count
+
+  Write-Host ''
+  Write-Ok 'Workspace created successfully!'
+  Write-Info "  Files generated: $fileCount"
+  Write-Info "  Symlinks created: $symlinkCount"
+  Write-Info "  Repos configured: $N"
+  Write-Host ''
+  Write-Info "Next steps:"
+  Write-Info "  cd $workspacePath; claude"
+  Write-Info "  cd $workspacePath; codex"
+}
+
+# --- add ---
+
+function Invoke-Add {
+  param([string[]]$Args_)
+
+  $workspacePath = Resolve-Path $Args_[0] | Select-Object -ExpandProperty Path
+  $repoPath = Resolve-Path $Args_[1] | Select-Object -ExpandProperty Path
+
+  if (-not (Test-Path (Join-Path $workspacePath 'AGENTS.md'))) {
+    throw "Not a valid workspace: $workspacePath (no AGENTS.md found)"
+  }
+  if (-not (Test-Path $repoPath -PathType Container)) { throw "Repo path does not exist: $repoPath" }
+
+  $workspaceName = Split-Path -Leaf $workspacePath
+
+  $det = Invoke-DetectStack -RepoPath $repoPath
+  $aliasName = Get-RepoAlias -RepoPath $repoPath
+
+  Write-Info "Adding repo: $aliasName ($($det.StackCsv))"
+  if (-not (Confirm-Action "Add '$aliasName' to workspace?")) { Write-Info 'Aborted.'; return }
+
+  # Update settings.json
+  $settingsPath = Join-Path $workspacePath '.claude' 'settings.json'
+  if (Test-Path $settingsPath) {
+    $settings = Get-Content -Path $settingsPath -Raw
+    $newEntry = "    `"$repoPath`""
+    $settings = $settings -replace '\s*\]', ",`n$newEntry`n  ]"
+    Write-OutputFile $settingsPath $settings
+  }
+
+  # Create specialist
+  $stackList = ''
+  foreach ($part in ($det.StackCsv -split ',')) {
+    $stackList += "- $($part.Trim())`n"
+  }
+
+  $specialist = Get-Template (Join-Path $TmplDir 'specialist.md.tmpl')
+  $specialist = $specialist -replace '\{\{alias\}\}', $aliasName
+  $specialist = $specialist -replace '\{\{primary_tech\}\}', $det.PrimaryTech
+  $specialist = $specialist -replace '\{\{repo_path\}\}', $repoPath
+  $specialist = $specialist -replace '\{\{stack_list\}\}', $stackList
+  $specialist = $specialist -replace '\{\{verify_cmds\}\}', $det.VerifyCmds
+
+  Write-OutputFile (Join-Path $workspacePath '.agents' "repo-$aliasName.md") $specialist
+  Write-OutputFile (Join-Path $workspacePath '.claude' 'agents' "repo-$aliasName.md") $specialist
+
+  # Symlink
+  if (-not $script:DryRun) {
+    $reposDir = Join-Path $workspacePath 'repos'
+    if (-not (Test-Path $reposDir)) { New-Item -ItemType Directory -Path $reposDir -Force | Out-Null }
+    $linkPath = Join-Path $reposDir $aliasName
+    if (Test-Path $linkPath) { Remove-Item $linkPath -Force }
+    New-Item -ItemType SymbolicLink -Path $linkPath -Target $repoPath | Out-Null
+  }
+
+  # Managed block
+  $verifyCmdListStr = ''
+  if ($det.VerifyCmds) {
+    foreach ($vc in ($det.VerifyCmds -split ',')) {
+      $verifyCmdListStr += "- ``$($vc.Trim())```n"
+    }
+  }
+
+  $block = Get-Template (Join-Path $TmplDir 'managed-block.md.tmpl')
+  $block = $block -replace '\{\{workspace_name\}\}', $workspaceName
+  $block = $block -replace '\{\{workspace_path\}\}', $workspacePath
+  $block = $block -replace '\{\{alias\}\}', $aliasName
+  $block = $block -replace '\{\{verify_cmds_list\}\}', $verifyCmdListStr
+
+  foreach ($tf in @('AGENTS.md', 'CLAUDE.md')) {
+    Sync-ManagedBlock (Join-Path $repoPath $tf) $block
+  }
+
+  Write-Ok "Repo '$aliasName' added to workspace."
+}
+
+# --- remove ---
+
+function Invoke-Remove {
+  param([string[]]$Args_)
+
+  $workspacePath = Resolve-Path $Args_[0] | Select-Object -ExpandProperty Path
+  $aliasName = $Args_[1]
+
+  if (-not (Test-Path (Join-Path $workspacePath 'AGENTS.md'))) {
+    throw "Not a valid workspace: $workspacePath"
+  }
+
+  if (-not (Confirm-Action "Remove '$aliasName' from workspace?")) { Write-Info 'Aborted.'; return }
+
+  # Remove specialist agents
+  foreach ($dir in @('.agents', (Join-Path '.claude' 'agents'))) {
+    $agentFile = Join-Path $workspacePath $dir "repo-$aliasName.md"
+    if (Test-Path $agentFile) {
+      if ($script:DryRun) { Write-Info "[dry-run] Would remove: $agentFile" }
+      else { Remove-Item $agentFile -Force; Write-Verbose_ "Removed: $agentFile" }
+    }
+  }
+
+  # Remove symlink
+  $linkPath = Join-Path $workspacePath 'repos' $aliasName
+  if (Test-Path $linkPath) {
+    $repoPath = (Get-Item $linkPath).Target
+    if ($script:DryRun) { Write-Info "[dry-run] Would remove symlink: $linkPath" }
+    else {
+      Remove-Item $linkPath -Force
+      Write-Verbose_ "Removed symlink: $aliasName"
+    }
+
+    # Clean managed block from repo
+    if ($repoPath -and (Test-Path $repoPath)) {
+      $startMarker = '<!-- MULTIREPO_SPACE_MANAGED:START -->'
+      $endMarker = '<!-- MULTIREPO_SPACE_MANAGED:END -->'
+      foreach ($tf in @('AGENTS.md', 'CLAUDE.md')) {
+        $repoFile = Join-Path $repoPath $tf
+        if ((Test-Path $repoFile) -and -not $script:DryRun) {
+          $content = Get-Content -Path $repoFile -Raw
+          $pattern = "(?s)`n?$([regex]::Escape($startMarker)).*?$([regex]::Escape($endMarker))`n?"
+          $content = $content -replace $pattern, ''
+          Set-Content -Path $repoFile -Value $content -NoNewline
+          Write-Verbose_ "Cleaned managed block: $repoFile"
+        }
+      }
+    }
+  }
+
+  # Remove from settings.json
+  $settingsPath = Join-Path $workspacePath '.claude' 'settings.json'
+  if ((Test-Path $settingsPath) -and -not $script:DryRun) {
+    $lines = Get-Content -Path $settingsPath | Where-Object { $_ -notmatch [regex]::Escape($aliasName) }
+    $joined = ($lines -join "`n") -replace ',(\s*\])', '$1'
+    Set-Content -Path $settingsPath -Value $joined -NoNewline
+  }
+
+  Write-Ok "Repo '$aliasName' removed from workspace."
+  Write-Warn 'You may need to manually update AGENTS.md/CLAUDE.md repos table and coordinator.'
+}
+
+# --- status ---
+
+function Invoke-Status {
+  param([string[]]$Args_)
+
+  $workspacePath = Resolve-Path $Args_[0] | Select-Object -ExpandProperty Path
+
+  if (-not (Test-Path (Join-Path $workspacePath 'AGENTS.md'))) {
+    throw "Not a valid workspace: $workspacePath"
+  }
+
+  $workspaceName = Split-Path -Leaf $workspacePath
+  Write-Host ''
+  Write-Info "Workspace: $workspaceName ($workspacePath)"
+  Write-Host ''
+
+  $total = 0; $healthy = 0; $broken = 0
+  $reposDir = Join-Path $workspacePath 'repos'
+  if (Test-Path $reposDir) {
+    '{0,-25} {1,-10} {2}' -f 'Alias', 'Status', 'Target' | Write-Host
+    '{0,-25} {1,-10} {2}' -f '-------------------------', '----------', '--------------------' | Write-Host
+    foreach ($item in Get-ChildItem -Path $reposDir) {
+      if (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
+      $total++
+      $alias = $item.Name
+      $target = $item.Target
+      if (Test-Path $target -PathType Container) {
+        '{0,-25} {1,-10} {2}' -f $alias, 'OK', $target | Write-Host -ForegroundColor Green
+        $healthy++
+      }
+      else {
+        '{0,-25} {1,-10} {2}' -f $alias, 'BROKEN', $target | Write-Host -ForegroundColor Red
+        $broken++
+      }
+    }
+  }
+
+  Write-Host ''
+  $agentsCount = (Get-ChildItem -Path (Join-Path $workspacePath '.agents') -Filter 'repo-*.md' -ErrorAction SilentlyContinue).Count
+  $claudeAgentsCount = (Get-ChildItem -Path (Join-Path $workspacePath '.claude' 'agents') -Filter 'repo-*.md' -ErrorAction SilentlyContinue).Count
+  $parityStatus = if ($agentsCount -eq $claudeAgentsCount) { 'OK' } else { 'MISMATCH' }
+
+  Write-Info "Repos: $total (healthy: $healthy, broken: $broken)"
+  Write-Info "Agents: .agents/=$agentsCount, .claude/agents/=$claudeAgentsCount ($parityStatus)"
+  $settingsExists = if (Test-Path (Join-Path $workspacePath '.claude' 'settings.json')) { 'EXISTS' } else { 'MISSING' }
+  $agentsMdExists = if (Test-Path (Join-Path $workspacePath 'AGENTS.md')) { 'EXISTS' } else { 'MISSING' }
+  $claudeMdExists = if (Test-Path (Join-Path $workspacePath 'CLAUDE.md')) { 'EXISTS' } else { 'MISSING' }
+  Write-Info "Config: .claude/settings.json $settingsExists"
+  Write-Info "AGENTS.md $agentsMdExists"
+  Write-Info "CLAUDE.md $claudeMdExists"
+}
+
+# --- Usage ---
+
+function Show-Usage {
+  @"
+multirepo-space v$ScriptVersion - Multi-repo workspace manager for AI coding agents
+
+Usage:
+  multirepo-space.ps1 <command> [options] <args>
+
+Commands:
+  setup   <workspace_path> <repo1> [repo2...]   Scaffold a new workspace
+  add     <workspace_path> <repo_path>           Add a repo to existing workspace
+  remove  <workspace_path> <alias>               Detach a repo from workspace
+  status  <workspace_path>                       Check workspace health
+
+Options:
+  -Yes        Non-interactive mode (skip confirmations)
+  -DryRun     Preview changes without writing
+  -Verbose_   Detailed output
+  -Help       Show this help
+  -Version_   Show version
+
+Examples:
+  .\multirepo-space.ps1 setup ~\workspace ~\repos\frontend ~\repos\backend
+  .\multirepo-space.ps1 add ~\workspace ~\repos\shared-lib
+  .\multirepo-space.ps1 remove ~\workspace shared-lib
+  .\multirepo-space.ps1 status ~\workspace
+"@ | Write-Host
+}
+
+# --- Main ---
+
+if ($Help) { Show-Usage; return }
+if ($Version_) { Write-Host "multirepo-space v$ScriptVersion"; return }
+
+switch ($Command) {
+  'setup' {
+    if ($RemainingArgs.Count -lt 2) { throw 'Usage: multirepo-space.ps1 setup <workspace_path> <repo1> [repo2...]' }
+    Invoke-Setup -Args_ $RemainingArgs
+  }
+  'add' {
+    if ($RemainingArgs.Count -ne 2) { throw 'Usage: multirepo-space.ps1 add <workspace_path> <repo_path>' }
+    Invoke-Add -Args_ $RemainingArgs
+  }
+  'remove' {
+    if ($RemainingArgs.Count -ne 2) { throw 'Usage: multirepo-space.ps1 remove <workspace_path> <alias>' }
+    Invoke-Remove -Args_ $RemainingArgs
+  }
+  'status' {
+    if ($RemainingArgs.Count -ne 1) { throw 'Usage: multirepo-space.ps1 status <workspace_path>' }
+    Invoke-Status -Args_ $RemainingArgs
+  }
+  default { Show-Usage }
+}
