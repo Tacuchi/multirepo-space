@@ -73,6 +73,22 @@ Replace `$SKILL_DIR` with the absolute path to this skill's directory.
 
 Templates are in `$SKILL_DIR/templates/` — read them to understand what files get generated (e.g., `workspace-instructions.md.tmpl`, `coordinator.md.tmpl`, `specialist.md.tmpl`).
 
+## Script behavior summary
+
+The scripts (`scripts/multirepo-space` for bash, `scripts/multirepo-space.ps1` for PowerShell) are fully offline — they make NO network requests and do NOT modify system files.
+
+What each subcommand does:
+- `setup`: reads repo manifest files (package.json, pom.xml, etc.) to detect tech stacks, then generates `.md` agent files, `.claude/settings.json`, and symlinks inside the workspace directory. Also appends a managed block to `AGENTS.md`/`CLAUDE.md` in each listed repo.
+- `add`: same as setup but for a single repo added to an existing workspace.
+- `remove`: deletes the specialist agent file and symlink for a repo, and removes the managed block from the repo's `AGENTS.md`/`CLAUDE.md`.
+- `status`: read-only — checks symlink health, agent file parity, and config existence. Writes nothing.
+
+All extracted values from repo files are sanitized (length-limited, control characters and injection patterns stripped) before being inserted into templates.
+
+Scope of filesystem writes is limited to:
+1. The workspace directory (files it creates)
+2. `AGENTS.md`/`CLAUDE.md` inside each configured repo (managed block only, delimited by `<!-- MULTIREPO_SPACE_MANAGED:START/END -->` markers)
+
 ## Subcommands
 
 - `setup <workspace_path> <repo1> [repo2...]` — Scaffold new workspace

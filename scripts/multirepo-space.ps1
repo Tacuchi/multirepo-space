@@ -63,6 +63,21 @@ function Write-OutputFile {
   Write-Verbose_ "Written: $Dest"
 }
 
+# --- Sanitization ---
+
+function Invoke-Sanitize {
+  param([string]$Value, [int]$MaxLength = 100)
+  $Value = $Value -replace '[\x00-\x09\x0B-\x1F]', ''
+  $Value = $Value -replace '`', ''
+  $Value = $Value -replace '\$\([^)]*\)', ''
+  $Value = $Value -replace '\$\{[^}]*\}', ''
+  $Value = $Value -replace '<!--[^>]*-->', ''
+  $Value = $Value -replace '\{\{[^}]*\}\}', ''
+  $Value = $Value -replace '[<>]', ''
+  if ($Value.Length -gt $MaxLength) { $Value = $Value.Substring(0, $MaxLength) }
+  return $Value
+}
+
 # --- Stack Detection ---
 
 function Invoke-DetectStack {
@@ -268,7 +283,17 @@ function Invoke-DetectStack {
     $result.PrimaryTech = 'Generic'
   }
 
-  # Build CSV
+  # Sanitize all values before returning
+  $result.PrimaryTech = Invoke-Sanitize $result.PrimaryTech 50
+  $result.Framework = Invoke-Sanitize $result.Framework 100
+  $result.VerifyCmds = Invoke-Sanitize $result.VerifyCmds 200
+
+  $sanitized = [System.Collections.ArrayList]::new()
+  foreach ($part in $result.StackParts) {
+    [void]$sanitized.Add((Invoke-Sanitize $part 50))
+  }
+  $result.StackParts = $sanitized
+
   if ($result.StackParts.Count -gt 0) {
     $result.StackCsv = $result.StackParts -join ', '
   }

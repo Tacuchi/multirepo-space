@@ -3,6 +3,16 @@
 # Detects technology stack for a given repository path.
 # Usage: source this file, then call detect_stack <repo_path>
 
+sanitize_value() {
+  local val="$1"
+  local max_len="${2:-100}"
+  val=$(echo "$val" | tr -d '\000-\011\013-\037')
+  val=$(echo "$val" | sed 's/`//g; s/\$([^)]*)//g; s/\${[^}]*}//g; s/<!--[^>]*-->//g; s/{{[^}]*}}//g')
+  val=$(echo "$val" | sed 's/[<>]//g')
+  val="${val:0:$max_len}"
+  echo "$val"
+}
+
 detect_stack() {
   local repo_path="$1"
   local dir_name primary_tech framework stack_csv verify_cmds version
@@ -244,12 +254,22 @@ detect_stack() {
     stack_csv="$primary_tech"
   fi
 
-  # Export results as global variables
-  DETECT_PRIMARY_TECH="$primary_tech"
-  DETECT_FRAMEWORK="$framework"
-  DETECT_STACK_CSV="$stack_csv"
-  DETECT_VERIFY_CMDS="$verify_cmds"
-  DETECT_STACK_PARTS=("${stack_parts[@]}")
+  # Sanitize all values before exporting
+  DETECT_PRIMARY_TECH=$(sanitize_value "$primary_tech" 50)
+  DETECT_FRAMEWORK=$(sanitize_value "$framework" 100)
+  DETECT_VERIFY_CMDS=$(sanitize_value "$verify_cmds" 200)
+
+  local sanitized_parts=()
+  for part in "${stack_parts[@]}"; do
+    sanitized_parts+=("$(sanitize_value "$part" 50)")
+  done
+  DETECT_STACK_PARTS=("${sanitized_parts[@]}")
+
+  if [[ ${#sanitized_parts[@]} -gt 0 ]]; then
+    DETECT_STACK_CSV=$(IFS=', '; echo "${sanitized_parts[*]}")
+  else
+    DETECT_STACK_CSV="$DETECT_PRIMARY_TECH"
+  fi
 }
 
 derive_alias() {

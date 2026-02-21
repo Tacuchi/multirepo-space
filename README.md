@@ -12,17 +12,8 @@ Multi-repo workspace manager for AI coding agents. Scaffold, manage, and orchest
 
 ## Install
 
-### Via skills.sh (recommended)
-
 ```bash
 npx skills add <owner>/multirepo-space -g
-```
-
-### Via git clone
-
-```bash
-git clone https://github.com/<owner>/multirepo-space.git ~/Git/multirepo-space
-bash ~/Git/multirepo-space/install.sh
 ```
 
 ## Usage
