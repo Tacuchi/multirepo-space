@@ -38,6 +38,15 @@ function Write-Verbose_ {
   if ($script:Verbose_) { Write-Info $Msg }
 }
 
+function Join-PathSegments {
+  param([string[]]$Segments)
+  $result = $Segments[0]
+  for ($i = 1; $i -lt $Segments.Count; $i++) {
+    $result = Join-Path $result $Segments[$i]
+  }
+  return $result
+}
+
 function Confirm-Action {
   param([string]$Msg = 'Continue?')
   if ($script:Yes) { return $true }
@@ -61,6 +70,19 @@ function Write-OutputFile {
   if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
   Set-Content -Path $Dest -Value $Content -NoNewline
   Write-Verbose_ "Written: $Dest"
+}
+
+function New-RepoLink {
+  param([string]$LinkPath, [string]$Target)
+  if (Test-Path $LinkPath) { Remove-Item $LinkPath -Force }
+  try {
+    New-Item -ItemType SymbolicLink -Path $LinkPath -Target $Target -ErrorAction Stop | Out-Null
+    Write-Verbose_ "Symlink: $LinkPath -> $Target"
+  }
+  catch {
+    New-Item -ItemType Junction -Path $LinkPath -Target $Target -ErrorAction Stop | Out-Null
+    Write-Verbose_ "Junction (fallback): $LinkPath -> $Target"
+  }
 }
 
 # --- Sanitization ---
@@ -361,7 +383,7 @@ function Invoke-RegenerateWorkspaceDocs {
     foreach ($item in Get-ChildItem -Path $reposDir) {
       if (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
       $a = $item.Name
-      $p = $item.Target
+      $p = @($item.Target)[0]
       if (-not (Test-Path $p -PathType Container)) { continue }
 
       $det = Invoke-DetectStack -RepoPath $p
@@ -389,8 +411,8 @@ function Invoke-RegenerateWorkspaceDocs {
   $coordinator = $coordinator -replace '\{\{N\}\}', $N
   $coordinator = $coordinator -replace '\{\{repos_word\}\}', $reposWord
   $coordinator = $coordinator -replace '\{\{specialist_list\}\}', $specialistList
-  Write-OutputFile (Join-Path $WorkspacePath '.agents' 'coordinator.md') $coordinator
-  Write-OutputFile (Join-Path $WorkspacePath '.claude' 'agents' 'coordinator.md') $coordinator
+  Write-OutputFile (Join-PathSegments $WorkspacePath, '.agents', 'coordinator.md') $coordinator
+  Write-OutputFile (Join-PathSegments $WorkspacePath, '.claude', 'agents', 'coordinator.md') $coordinator
 
   # 2. Regenerate AGENTS.md + CLAUDE.md
   $reposTable = ''
@@ -428,7 +450,7 @@ function Invoke-RegenerateWorkspaceDocs {
   }
   $settingsContent = Get-Template (Join-Path $TmplDir 'settings.json.tmpl')
   $settingsContent = $settingsContent -replace '\{\{additional_directories\}\}', ($additionalDirs -join "`n")
-  Write-OutputFile (Join-Path $WorkspacePath '.claude' 'settings.json') $settingsContent
+  Write-OutputFile (Join-PathSegments $WorkspacePath, '.claude', 'settings.json') $settingsContent
 
   Write-Verbose_ "Regenerated workspace docs ($N repos)"
 }
@@ -451,7 +473,7 @@ function Invoke-Setup {
     if (-not (Test-Path $rp -PathType Container)) { throw "Repo path does not exist: $rp" }
   }
 
-  $settingsJson = Join-Path $workspacePath '.claude' 'settings.json'
+  $settingsJson = Join-PathSegments $workspacePath, '.claude', 'settings.json'
   $agentsMd = Join-Path $workspacePath 'AGENTS.md'
   if ((Test-Path $settingsJson) -or (Test-Path $agentsMd)) {
     Write-Warn 'Workspace already has configuration files.'
@@ -513,7 +535,7 @@ function Invoke-Setup {
   }
   $settingsContent = Get-Template (Join-Path $TmplDir 'settings.json.tmpl')
   $settingsContent = $settingsContent -replace '\{\{additional_directories\}\}', ($additionalDirs -join "`n")
-  Write-OutputFile (Join-Path $workspacePath '.claude' 'settings.json') $settingsContent
+  Write-OutputFile (Join-PathSegments $workspacePath, '.claude', 'settings.json') $settingsContent
 
   # 2. AGENTS.md + CLAUDE.md
   $reposTable = ''
@@ -558,8 +580,8 @@ function Invoke-Setup {
   $coordinator = $coordinator -replace '\{\{N\}\}', $N
   $coordinator = $coordinator -replace '\{\{repos_word\}\}', $reposWord
   $coordinator = $coordinator -replace '\{\{specialist_list\}\}', $specialistList
-  Write-OutputFile (Join-Path $workspacePath '.agents' 'coordinator.md') $coordinator
-  Write-OutputFile (Join-Path $workspacePath '.claude' 'agents' 'coordinator.md') $coordinator
+  Write-OutputFile (Join-PathSegments $workspacePath, '.agents', 'coordinator.md') $coordinator
+  Write-OutputFile (Join-PathSegments $workspacePath, '.claude', 'agents', 'coordinator.md') $coordinator
 
   # 4. Specialist agents
   for ($i = 0; $i -lt $N; $i++) {
@@ -576,13 +598,13 @@ function Invoke-Setup {
     $specialist = $specialist -replace '\{\{stack_list\}\}', $stackList
     $specialist = $specialist -replace '\{\{verify_cmds\}\}', $verifyCmdsList[$i]
 
-    Write-OutputFile (Join-Path $workspacePath '.agents' "repo-$($aliases[$i]).md") $specialist
-    Write-OutputFile (Join-Path $workspacePath '.claude' 'agents' "repo-$($aliases[$i]).md") $specialist
+    Write-OutputFile (Join-PathSegments $workspacePath, '.agents', "repo-$($aliases[$i]).md") $specialist
+    Write-OutputFile (Join-PathSegments $workspacePath, '.claude', 'agents', "repo-$($aliases[$i]).md") $specialist
   }
 
   # 5. Output directories
-  Write-OutputFile (Join-Path $workspacePath 'docs' '.gitkeep') ''
-  Write-OutputFile (Join-Path $workspacePath 'scripts' '.gitkeep') ''
+  Write-OutputFile (Join-PathSegments $workspacePath, 'docs', '.gitkeep') ''
+  Write-OutputFile (Join-PathSegments $workspacePath, 'scripts', '.gitkeep') ''
 
   # 6. Symlinks
   Write-Info 'Creating repo symlinks...'
@@ -596,9 +618,7 @@ function Invoke-Setup {
       Write-Info "[dry-run] Would symlink: $linkPath -> $($repoPaths[$i])"
     }
     else {
-      if (Test-Path $linkPath) { Remove-Item $linkPath -Force }
-      New-Item -ItemType SymbolicLink -Path $linkPath -Target $repoPaths[$i] | Out-Null
-      Write-Verbose_ "Symlink: $($aliases[$i]) -> $($repoPaths[$i])"
+      New-RepoLink -LinkPath $linkPath -Target $repoPaths[$i]
     }
   }
 
@@ -661,10 +681,10 @@ function Invoke-Add {
   $aliasName = Get-RepoAlias -RepoPath $repoPath
 
   # Check for alias collision with existing repos
-  $existingLink = Join-Path $workspacePath 'repos' $aliasName
+  $existingLink = Join-PathSegments $workspacePath, 'repos', $aliasName
   if (Test-Path $existingLink) {
     $suffix = 2
-    while (Test-Path (Join-Path $workspacePath 'repos' "$aliasName-$suffix")) {
+    while (Test-Path (Join-PathSegments $workspacePath, 'repos', "$aliasName-$suffix")) {
       $suffix++
     }
     Write-Warn "Alias '$aliasName' already exists, using '$aliasName-$suffix'"
@@ -687,16 +707,15 @@ function Invoke-Add {
   $specialist = $specialist -replace '\{\{stack_list\}\}', $stackList
   $specialist = $specialist -replace '\{\{verify_cmds\}\}', $det.VerifyCmds
 
-  Write-OutputFile (Join-Path $workspacePath '.agents' "repo-$aliasName.md") $specialist
-  Write-OutputFile (Join-Path $workspacePath '.claude' 'agents' "repo-$aliasName.md") $specialist
+  Write-OutputFile (Join-PathSegments $workspacePath, '.agents', "repo-$aliasName.md") $specialist
+  Write-OutputFile (Join-PathSegments $workspacePath, '.claude', 'agents', "repo-$aliasName.md") $specialist
 
   # Symlink
   if (-not $script:DryRun) {
     $reposDir = Join-Path $workspacePath 'repos'
     if (-not (Test-Path $reposDir)) { New-Item -ItemType Directory -Path $reposDir -Force | Out-Null }
     $linkPath = Join-Path $reposDir $aliasName
-    if (Test-Path $linkPath) { Remove-Item $linkPath -Force }
-    New-Item -ItemType SymbolicLink -Path $linkPath -Target $repoPath | Out-Null
+    New-RepoLink -LinkPath $linkPath -Target $repoPath
   }
 
   # Managed block
@@ -739,7 +758,7 @@ function Invoke-Remove {
 
   # Remove specialist agents
   foreach ($dir in @('.agents', (Join-Path '.claude' 'agents'))) {
-    $agentFile = Join-Path $workspacePath $dir "repo-$aliasName.md"
+    $agentFile = Join-PathSegments $workspacePath, $dir, "repo-$aliasName.md"
     if (Test-Path $agentFile) {
       if ($script:DryRun) { Write-Info "[dry-run] Would remove: $agentFile" }
       else { Remove-Item $agentFile -Force; Write-Verbose_ "Removed: $agentFile" }
@@ -747,9 +766,9 @@ function Invoke-Remove {
   }
 
   # Remove symlink
-  $linkPath = Join-Path $workspacePath 'repos' $aliasName
+  $linkPath = Join-PathSegments $workspacePath, 'repos', $aliasName
   if (Test-Path $linkPath) {
-    $repoPath = (Get-Item $linkPath).Target
+    $repoPath = @((Get-Item $linkPath).Target)[0]
     if ($script:DryRun) { Write-Info "[dry-run] Would remove symlink: $linkPath" }
     else {
       Remove-Item $linkPath -Force
@@ -804,7 +823,7 @@ function Invoke-Status {
       if (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
       $total++
       $alias = $item.Name
-      $target = $item.Target
+      $target = @($item.Target)[0]
       if (Test-Path $target -PathType Container) {
         '{0,-25} {1,-10} {2}' -f $alias, 'OK', $target | Write-Host -ForegroundColor Green
         $healthy++
@@ -818,12 +837,12 @@ function Invoke-Status {
 
   Write-Host ''
   $agentsCount = (Get-ChildItem -Path (Join-Path $workspacePath '.agents') -Filter 'repo-*.md' -ErrorAction SilentlyContinue).Count
-  $claudeAgentsCount = (Get-ChildItem -Path (Join-Path $workspacePath '.claude' 'agents') -Filter 'repo-*.md' -ErrorAction SilentlyContinue).Count
+  $claudeAgentsCount = (Get-ChildItem -Path (Join-PathSegments $workspacePath, '.claude', 'agents') -Filter 'repo-*.md' -ErrorAction SilentlyContinue).Count
   $parityStatus = if ($agentsCount -eq $claudeAgentsCount) { 'OK' } else { 'MISMATCH' }
 
   Write-Info "Repos: $total (healthy: $healthy, broken: $broken)"
   Write-Info "Agents: .agents/=$agentsCount, .claude/agents/=$claudeAgentsCount ($parityStatus)"
-  $settingsExists = if (Test-Path (Join-Path $workspacePath '.claude' 'settings.json')) { 'EXISTS' } else { 'MISSING' }
+  $settingsExists = if (Test-Path (Join-PathSegments $workspacePath, '.claude', 'settings.json')) { 'EXISTS' } else { 'MISSING' }
   $agentsMdExists = if (Test-Path (Join-Path $workspacePath 'AGENTS.md')) { 'EXISTS' } else { 'MISSING' }
   $claudeMdExists = if (Test-Path (Join-Path $workspacePath 'CLAUDE.md')) { 'EXISTS' } else { 'MISSING' }
   Write-Info "Config: .claude/settings.json $settingsExists"

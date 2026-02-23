@@ -56,7 +56,7 @@ Then manually add verify commands to the generated specialist agent file.
 - Run `setup` on a populated workspace without confirming with the user first.
 - Use relative paths for repos — symlinks will break when working directory changes.
 - Skip `--dry-run` for first-time users — always suggest preview first.
-- Run PowerShell port on Windows without elevated terminal — symlinks require admin privileges.
+- Assume symlinks always work on Windows — the PowerShell port falls back to junctions when symlinks need elevation, but junctions only support local directories (not network paths).
 - Assume workspace exists — verify with `status` before running `add` or `remove`.
 - Create the workspace directory inside one of the repos — it must be a sibling or independent path.
 - Edit managed blocks manually in external repos — they get overwritten on next `add`/`setup`.

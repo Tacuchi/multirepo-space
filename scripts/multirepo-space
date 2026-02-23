@@ -106,19 +106,27 @@ cmd_setup() {
     VERIFY_CMDS_LIST+=("$DETECT_VERIFY_CMDS")
   done
 
-  # Detect and resolve duplicate aliases
-  declare -A _alias_seen=()
+  # Detect and resolve duplicate aliases (bash 3.2 compatible)
+  local _seen_keys=()
+  local _seen_vals=()
   for i in "${!ALIASES[@]}"; do
     local a="${ALIASES[$i]}"
-    if [[ -n "${_alias_seen[$a]+_}" ]]; then
-      _alias_seen[$a]=$(( ${_alias_seen[$a]} + 1 ))
-      ALIASES[$i]="${a}-${_alias_seen[$a]}"
+    local _found=-1
+    for k in "${!_seen_keys[@]}"; do
+      if [[ "${_seen_keys[$k]}" == "$a" ]]; then
+        _found=$k
+        break
+      fi
+    done
+    if [[ $_found -ge 0 ]]; then
+      _seen_vals[$_found]=$(( ${_seen_vals[$_found]} + 1 ))
+      ALIASES[$i]="${a}-${_seen_vals[$_found]}"
       warn "Duplicate alias '$a' resolved to '${ALIASES[$i]}'"
     else
-      _alias_seen[$a]=1
+      _seen_keys+=("$a")
+      _seen_vals+=(1)
     fi
   done
-  unset _alias_seen
 
   # Show summary
   echo ""
@@ -561,7 +569,7 @@ cmd_remove() {
       for target_file in "AGENTS.md" "CLAUDE.md"; do
         local repo_file="$repo_path/$target_file"
         if [[ -f "$repo_file" ]] && ! $OPT_DRY_RUN; then
-          sed -i '' "/<!-- MULTIREPO_SPACE_MANAGED:START -->/,/<!-- MULTIREPO_SPACE_MANAGED:END -->/d" "$repo_file" 2>/dev/null || true
+          sed "/<!-- MULTIREPO_SPACE_MANAGED:START -->/,/<!-- MULTIREPO_SPACE_MANAGED:END -->/d" "$repo_file" > "$repo_file.tmp" && mv "$repo_file.tmp" "$repo_file"
           verbose "Cleaned managed block: $repo_file"
         fi
       done
