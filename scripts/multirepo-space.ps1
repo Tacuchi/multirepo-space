@@ -342,6 +342,97 @@ function Sync-ManagedBlock {
   Write-Verbose_ "Synced managed block: $TargetFile"
 }
 
+# --- regenerate workspace docs ---
+
+function Invoke-RegenerateWorkspaceDocs {
+  param([string]$WorkspacePath)
+
+  $today = Get-Date -Format 'yyyy-MM-dd'
+
+  # Scan current repos from symlinks
+  $regenAliases = @()
+  $regenPaths = @()
+  $regenTechs = @()
+  $regenCsvs = @()
+  $regenVcmds = @()
+
+  $reposDir = Join-Path $WorkspacePath 'repos'
+  if (Test-Path $reposDir) {
+    foreach ($item in Get-ChildItem -Path $reposDir) {
+      if (-not ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
+      $a = $item.Name
+      $p = $item.Target
+      if (-not (Test-Path $p -PathType Container)) { continue }
+
+      $det = Invoke-DetectStack -RepoPath $p
+      $regenAliases += $a
+      $regenPaths += $p
+      $regenTechs += $det.PrimaryTech
+      $regenCsvs += $det.StackCsv
+      $regenVcmds += $det.VerifyCmds
+    }
+  }
+
+  $N = $regenAliases.Count
+  $reposWord = if ($N -eq 1) { 'repositorio' } else { 'repositorios' }
+
+  # 1. Regenerate coordinator
+  $specialistList = ''
+  for ($i = 0; $i -lt $N; $i++) {
+    if ($i -gt 0) {
+      $specialistList += if ($i -eq ($N - 1)) { ' y ' } else { ', ' }
+    }
+    $specialistList += "``$($regenAliases[$i])``"
+  }
+
+  $coordinator = Get-Template (Join-Path $TmplDir 'coordinator.md.tmpl')
+  $coordinator = $coordinator -replace '\{\{N\}\}', $N
+  $coordinator = $coordinator -replace '\{\{repos_word\}\}', $reposWord
+  $coordinator = $coordinator -replace '\{\{specialist_list\}\}', $specialistList
+  Write-OutputFile (Join-Path $WorkspacePath '.agents' 'coordinator.md') $coordinator
+  Write-OutputFile (Join-Path $WorkspacePath '.claude' 'agents' 'coordinator.md') $coordinator
+
+  # 2. Regenerate AGENTS.md + CLAUDE.md
+  $reposTable = ''
+  for ($i = 0; $i -lt $N; $i++) {
+    $repoBase = Split-Path -Leaf $regenPaths[$i]
+    $reposTable += "| **Repo $($i+1)** ($($regenAliases[$i])) | $repoBase | ``$($regenPaths[$i])`` | $($regenCsvs[$i]) |`n"
+  }
+
+  $symlinksTable = ''
+  for ($i = 0; $i -lt $N; $i++) {
+    $symlinksTable += "| $($regenAliases[$i]) | ``$($regenPaths[$i])`` |`n"
+  }
+
+  $agentsTable = "| ``coordinator`` | Orquesta trabajo multi-repo, delega a especialistas | Workspace completo |`n"
+  for ($i = 0; $i -lt $N; $i++) {
+    $agentsTable += "| ``$($regenAliases[$i])`` | Especialista $($regenTechs[$i]) | Repo $($i+1) |`n"
+  }
+
+  $instructions = Get-Template (Join-Path $TmplDir 'workspace-instructions.md.tmpl')
+  $instructions = $instructions -replace '\{\{N\}\}', $N
+  $instructions = $instructions -replace '\{\{repos_word\}\}', $reposWord
+  $instructions = $instructions -replace '\{\{repos_table\}\}', $reposTable
+  $instructions = $instructions -replace '\{\{symlinks_table\}\}', $symlinksTable
+  $instructions = $instructions -replace '\{\{agents_table\}\}', $agentsTable
+  $instructions = $instructions -replace '\{\{today\}\}', $today
+
+  Write-OutputFile (Join-Path $WorkspacePath 'AGENTS.md') $instructions
+  Write-OutputFile (Join-Path $WorkspacePath 'CLAUDE.md') $instructions
+
+  # 3. Regenerate .claude/settings.json
+  $additionalDirs = @()
+  for ($i = 0; $i -lt $N; $i++) {
+    $comma = if ($i -lt ($N - 1)) { ',' } else { '' }
+    $additionalDirs += "    `"$($regenPaths[$i])`"$comma"
+  }
+  $settingsContent = Get-Template (Join-Path $TmplDir 'settings.json.tmpl')
+  $settingsContent = $settingsContent -replace '\{\{additional_directories\}\}', ($additionalDirs -join "`n")
+  Write-OutputFile (Join-Path $WorkspacePath '.claude' 'settings.json') $settingsContent
+
+  Write-Verbose_ "Regenerated workspace docs ($N repos)"
+}
+
 # --- setup ---
 
 function Invoke-Setup {
@@ -387,6 +478,19 @@ function Invoke-Setup {
     $verifyCmdsList += $det.VerifyCmds
   }
 
+  # Detect and resolve duplicate aliases
+  $aliasSeen = @{}
+  for ($i = 0; $i -lt $aliases.Count; $i++) {
+    $a = $aliases[$i]
+    if ($aliasSeen.ContainsKey($a)) {
+      $aliasSeen[$a]++
+      $aliases[$i] = "$a-$($aliasSeen[$a])"
+      Write-Warn "Duplicate alias '$a' resolved to '$($aliases[$i])'"
+    } else {
+      $aliasSeen[$a] = 1
+    }
+  }
+
   Write-Host ''
   Write-Info "Workspace: $workspacePath"
   Write-Host ''
@@ -428,8 +532,11 @@ function Invoke-Setup {
     $agentsTable += "| ``$($aliases[$i])`` | Especialista $($primaryTechs[$i]) | Repo $($i+1) |`n"
   }
 
+  $reposWord = if ($N -eq 1) { 'repositorio' } else { 'repositorios' }
+
   $instructions = Get-Template (Join-Path $TmplDir 'workspace-instructions.md.tmpl')
   $instructions = $instructions -replace '\{\{N\}\}', $N
+  $instructions = $instructions -replace '\{\{repos_word\}\}', $reposWord
   $instructions = $instructions -replace '\{\{repos_table\}\}', $reposTable
   $instructions = $instructions -replace '\{\{symlinks_table\}\}', $symlinksTable
   $instructions = $instructions -replace '\{\{agents_table\}\}', $agentsTable
@@ -449,6 +556,7 @@ function Invoke-Setup {
 
   $coordinator = Get-Template (Join-Path $TmplDir 'coordinator.md.tmpl')
   $coordinator = $coordinator -replace '\{\{N\}\}', $N
+  $coordinator = $coordinator -replace '\{\{repos_word\}\}', $reposWord
   $coordinator = $coordinator -replace '\{\{specialist_list\}\}', $specialistList
   Write-OutputFile (Join-Path $workspacePath '.agents' 'coordinator.md') $coordinator
   Write-OutputFile (Join-Path $workspacePath '.claude' 'agents' 'coordinator.md') $coordinator
@@ -552,17 +660,19 @@ function Invoke-Add {
   $det = Invoke-DetectStack -RepoPath $repoPath
   $aliasName = Get-RepoAlias -RepoPath $repoPath
 
+  # Check for alias collision with existing repos
+  $existingLink = Join-Path $workspacePath 'repos' $aliasName
+  if (Test-Path $existingLink) {
+    $suffix = 2
+    while (Test-Path (Join-Path $workspacePath 'repos' "$aliasName-$suffix")) {
+      $suffix++
+    }
+    Write-Warn "Alias '$aliasName' already exists, using '$aliasName-$suffix'"
+    $aliasName = "$aliasName-$suffix"
+  }
+
   Write-Info "Adding repo: $aliasName ($($det.StackCsv))"
   if (-not (Confirm-Action "Add '$aliasName' to workspace?")) { Write-Info 'Aborted.'; return }
-
-  # Update settings.json
-  $settingsPath = Join-Path $workspacePath '.claude' 'settings.json'
-  if (Test-Path $settingsPath) {
-    $settings = Get-Content -Path $settingsPath -Raw
-    $newEntry = "    `"$repoPath`""
-    $settings = $settings -replace '\s*\]', ",`n$newEntry`n  ]"
-    Write-OutputFile $settingsPath $settings
-  }
 
   # Create specialist
   $stackList = ''
@@ -606,6 +716,9 @@ function Invoke-Add {
   foreach ($tf in @('AGENTS.md', 'CLAUDE.md')) {
     Sync-ManagedBlock (Join-Path $repoPath $tf) $block
   }
+
+  # Regenerate all workspace docs (coordinator + AGENTS.md + CLAUDE.md + settings.json)
+  Invoke-RegenerateWorkspaceDocs -WorkspacePath $workspacePath
 
   Write-Ok "Repo '$aliasName' added to workspace."
 }
@@ -660,16 +773,10 @@ function Invoke-Remove {
     }
   }
 
-  # Remove from settings.json
-  $settingsPath = Join-Path $workspacePath '.claude' 'settings.json'
-  if ((Test-Path $settingsPath) -and -not $script:DryRun) {
-    $lines = Get-Content -Path $settingsPath | Where-Object { $_ -notmatch [regex]::Escape($aliasName) }
-    $joined = ($lines -join "`n") -replace ',(\s*\])', '$1'
-    Set-Content -Path $settingsPath -Value $joined -NoNewline
-  }
+  # Regenerate all workspace docs (coordinator + AGENTS.md + CLAUDE.md + settings.json)
+  Invoke-RegenerateWorkspaceDocs -WorkspacePath $workspacePath
 
   Write-Ok "Repo '$aliasName' removed from workspace."
-  Write-Warn 'You may need to manually update AGENTS.md/CLAUDE.md repos table and coordinator.'
 }
 
 # --- status ---

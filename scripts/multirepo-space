@@ -106,6 +106,20 @@ cmd_setup() {
     VERIFY_CMDS_LIST+=("$DETECT_VERIFY_CMDS")
   done
 
+  # Detect and resolve duplicate aliases
+  declare -A _alias_seen=()
+  for i in "${!ALIASES[@]}"; do
+    local a="${ALIASES[$i]}"
+    if [[ -n "${_alias_seen[$a]+_}" ]]; then
+      _alias_seen[$a]=$(( ${_alias_seen[$a]} + 1 ))
+      ALIASES[$i]="${a}-${_alias_seen[$a]}"
+      warn "Duplicate alias '$a' resolved to '${ALIASES[$i]}'"
+    else
+      _alias_seen[$a]=1
+    fi
+  done
+  unset _alias_seen
+
   # Show summary
   echo ""
   info "Workspace: $workspace_path"
@@ -151,9 +165,13 @@ cmd_setup() {
     agents_table+="| \`${ALIASES[$i]}\` | Especialista ${PRIMARY_TECHS[$i]} | Repo $((i+1)) |"$'\n'
   done
 
+  local repos_word="repositorios"
+  [[ $N -eq 1 ]] && repos_word="repositorio"
+
   local instructions
   instructions=$(template "$TMPL_DIR/workspace-instructions.md.tmpl")
   instructions="${instructions//\{\{N\}\}/$N}"
+  instructions="${instructions//\{\{repos_word\}\}/$repos_word}"
   instructions="${instructions//\{\{repos_table\}\}/$repos_table}"
   instructions="${instructions//\{\{symlinks_table\}\}/$symlinks_table}"
   instructions="${instructions//\{\{agents_table\}\}/$agents_table}"
@@ -178,6 +196,7 @@ cmd_setup() {
   local coordinator
   coordinator=$(template "$TMPL_DIR/coordinator.md.tmpl")
   coordinator="${coordinator//\{\{N\}\}/$N}"
+  coordinator="${coordinator//\{\{repos_word\}\}/$repos_word}"
   coordinator="${coordinator//\{\{specialist_list\}\}/$specialist_list}"
 
   write_file "$workspace_path/.agents/coordinator.md" "$coordinator"
@@ -308,6 +327,107 @@ sync_managed_block() {
   verbose "Synced managed block: $target_file"
 }
 
+# --- regenerate workspace docs ---
+
+regenerate_workspace_docs() {
+  local workspace_path="$1"
+  local today
+  today=$(date +%Y-%m-%d)
+
+  # Scan current repos from symlinks
+  local -a regen_aliases=()
+  local -a regen_paths=()
+  local -a regen_techs=()
+  local -a regen_csvs=()
+  local -a regen_vcmds=()
+
+  if [[ -d "$workspace_path/repos" ]]; then
+    for link in "$workspace_path/repos"/*; do
+      [[ -L "$link" ]] || continue
+      local a
+      a=$(basename "$link")
+      local p
+      p=$(readlink "$link")
+      [[ -d "$p" ]] || continue
+
+      detect_stack "$p"
+      regen_aliases+=("$a")
+      regen_paths+=("$p")
+      regen_techs+=("$DETECT_PRIMARY_TECH")
+      regen_csvs+=("$DETECT_STACK_CSV")
+      regen_vcmds+=("$DETECT_VERIFY_CMDS")
+    done
+  fi
+
+  local N=${#regen_aliases[@]}
+  local repos_word="repositorios"
+  [[ $N -eq 1 ]] && repos_word="repositorio"
+
+  # 1. Regenerate coordinator
+  local specialist_list=""
+  for i in "${!regen_aliases[@]}"; do
+    if [[ $i -gt 0 ]]; then
+      if [[ $i -eq $((N-1)) ]]; then
+        specialist_list+=" y "
+      else
+        specialist_list+=", "
+      fi
+    fi
+    specialist_list+="\`${regen_aliases[$i]}\`"
+  done
+
+  local coordinator
+  coordinator=$(template "$TMPL_DIR/coordinator.md.tmpl")
+  coordinator="${coordinator//\{\{N\}\}/$N}"
+  coordinator="${coordinator//\{\{repos_word\}\}/$repos_word}"
+  coordinator="${coordinator//\{\{specialist_list\}\}/$specialist_list}"
+
+  write_file "$workspace_path/.agents/coordinator.md" "$coordinator"
+  write_file "$workspace_path/.claude/agents/coordinator.md" "$coordinator"
+
+  # 2. Regenerate AGENTS.md + CLAUDE.md
+  local repos_table=""
+  for i in "${!regen_aliases[@]}"; do
+    repos_table+="| **Repo $((i+1))** (${regen_aliases[$i]}) | $(basename "${regen_paths[$i]}") | \`${regen_paths[$i]}\` | ${regen_csvs[$i]} |"$'\n'
+  done
+
+  local symlinks_table=""
+  for i in "${!regen_aliases[@]}"; do
+    symlinks_table+="| ${regen_aliases[$i]} | \`${regen_paths[$i]}\` |"$'\n'
+  done
+
+  local agents_table="| \`coordinator\` | Orquesta trabajo multi-repo, delega a especialistas | Workspace completo |"$'\n'
+  for i in "${!regen_aliases[@]}"; do
+    agents_table+="| \`${regen_aliases[$i]}\` | Especialista ${regen_techs[$i]} | Repo $((i+1)) |"$'\n'
+  done
+
+  local instructions
+  instructions=$(template "$TMPL_DIR/workspace-instructions.md.tmpl")
+  instructions="${instructions//\{\{N\}\}/$N}"
+  instructions="${instructions//\{\{repos_word\}\}/$repos_word}"
+  instructions="${instructions//\{\{repos_table\}\}/$repos_table}"
+  instructions="${instructions//\{\{symlinks_table\}\}/$symlinks_table}"
+  instructions="${instructions//\{\{agents_table\}\}/$agents_table}"
+  instructions="${instructions//\{\{today\}\}/$today}"
+
+  write_file "$workspace_path/AGENTS.md" "$instructions"
+  write_file "$workspace_path/CLAUDE.md" "$instructions"
+
+  # 3. Regenerate .claude/settings.json
+  local additional_dirs=""
+  for i in "${!regen_paths[@]}"; do
+    local comma=""
+    [[ $i -lt $((N-1)) ]] && comma=","
+    additional_dirs+="    \"${regen_paths[$i]}\"${comma}"$'\n'
+  done
+  local settings_content
+  settings_content=$(template "$TMPL_DIR/settings.json.tmpl")
+  settings_content="${settings_content//\{\{additional_directories\}\}/$additional_dirs}"
+  write_file "$workspace_path/.claude/settings.json" "$settings_content"
+
+  verbose "Regenerated workspace docs ($N repos)"
+}
+
 # --- add ---
 
 cmd_add() {
@@ -329,18 +449,18 @@ cmd_add() {
   local alias_name
   alias_name=$(derive_alias "$repo_path")
 
+  # Check for alias collision with existing repos
+  if [[ -L "$workspace_path/repos/$alias_name" ]]; then
+    local suffix=2
+    while [[ -L "$workspace_path/repos/${alias_name}-${suffix}" ]]; do
+      ((suffix++))
+    done
+    warn "Alias '$alias_name' already exists, using '${alias_name}-${suffix}'"
+    alias_name="${alias_name}-${suffix}"
+  fi
+
   info "Adding repo: $alias_name ($DETECT_STACK_CSV)"
   confirm "Add '$alias_name' to workspace?" || { info "Aborted."; exit 0; }
-
-  # Update .claude/settings.json
-  if [[ -f "$workspace_path/.claude/settings.json" ]]; then
-    local settings
-    settings=$(cat "$workspace_path/.claude/settings.json")
-    # Insert new path before closing bracket
-    local new_entry="    \"$repo_path\""
-    settings=$(echo "$settings" | sed "s|  \]|,\n$new_entry\n  ]|")
-    write_file "$workspace_path/.claude/settings.json" "$settings"
-  fi
 
   # Create specialist agent
   local stack_list=""
@@ -390,14 +510,8 @@ cmd_add() {
     sync_managed_block "$repo_path/$target_file" "$block"
   done
 
-  # Append to workspace AGENTS.md/CLAUDE.md repos table
-  local new_row="| **Repo** ($alias_name) | $(basename "$repo_path") | \`$repo_path\` | $DETECT_STACK_CSV |"
-  for ws_file in "$workspace_path/AGENTS.md" "$workspace_path/CLAUDE.md"; do
-    if [[ -f "$ws_file" ]] && ! $OPT_DRY_RUN; then
-      sed -i '' "/^## Reglas de salida/i\\
-$new_row" "$ws_file" 2>/dev/null || true
-    fi
-  done
+  # Regenerate all workspace docs (coordinator + AGENTS.md + CLAUDE.md + settings.json)
+  regenerate_workspace_docs "$workspace_path"
 
   ok "Repo '$alias_name' added to workspace."
 }
@@ -454,17 +568,10 @@ cmd_remove() {
     fi
   fi
 
-  # Remove from .claude/settings.json
-  if [[ -f "$workspace_path/.claude/settings.json" ]] && [[ -n "$repo_path" ]] && ! $OPT_DRY_RUN; then
-    local tmp_settings
-    tmp_settings=$(grep -vF "$repo_path" "$workspace_path/.claude/settings.json" || true)
-    # Fix trailing commas in JSON
-    tmp_settings=$(echo "$tmp_settings" | sed 's/,\([[:space:]]*\]\)/\1/g')
-    echo "$tmp_settings" > "$workspace_path/.claude/settings.json"
-  fi
+  # Regenerate all workspace docs (coordinator + AGENTS.md + CLAUDE.md + settings.json)
+  regenerate_workspace_docs "$workspace_path"
 
   ok "Repo '$alias_name' removed from workspace."
-  warn "You may need to manually update AGENTS.md/CLAUDE.md repos table and coordinator."
 }
 
 # --- status ---

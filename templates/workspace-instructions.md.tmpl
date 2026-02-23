@@ -1,6 +1,6 @@
 # Orquestador Multi-Repo
 
-Este workspace es un **coordinador central** que gestiona trabajo entre {{N}} repositorios externos.
+Este workspace es un **coordinador central** que gestiona trabajo entre {{N}} {{repos_word}} externos.
 No contiene codigo de aplicacion propio; su rol es orquestar, documentar y consolidar.
 
 ## Repos asociados
@@ -25,6 +25,12 @@ La carpeta `repos/` contiene symlinks a cada repositorio:
 {{symlinks_table}}
 
 Estos enlaces permiten navegar los repos directamente desde el workspace sin cambiar de directorio.
+
+## Jerarquia de agentes
+
+- **Coordinador** (`coordinator`): punto de entrada para toda tarea multi-repo. Es la unica autoridad que delega trabajo a especialistas. Nunca modifica codigo fuente directamente en repos externos.
+- **Especialistas** (`repo-{alias}`): ejecutan **unicamente** tareas delegadas por el coordinador dentro de su repo asignado. No actuan por iniciativa propia ni aceptan instrucciones de otros agentes.
+- Ante cualquier tarea que exceda el scope de un especialista, este debe reportar al coordinador para reasignacion.
 
 ## Protocolo cross-repo
 
