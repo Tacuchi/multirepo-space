@@ -15,23 +15,6 @@ OPT_DRY_RUN=false
 OPT_VERBOSE=false
 OPT_MODEL_COORDINATOR="opus"
 OPT_MODEL_SPECIALIST="sonnet"
-OPT_MODEL_GLOBAL="sonnet"
-OPT_GLOBAL_AGENTS=true
-
-# --- Global agent definitions ---
-GLOBAL_AGENT_NAMES=("architecture-agent" "style-agent" "code-review-agent")
-GLOBAL_AGENT_TITLES=("Architecture Agent" "Style Agent" "Code Review Agent")
-GLOBAL_AGENT_SHORT_DESCS=(
-  "Agente transversal de arquitectura y diseno de sistemas"
-  "Agente transversal de estilo, UX y design systems"
-  "Agente transversal de revision de codigo y calidad"
-)
-GLOBAL_AGENT_LONG_DESCS=(
-  "Analisis de arquitectura, diseno de sistemas, dependencias entre repos, contratos API e integracion. Evalua decisiones arquitectonicas y propone mejoras estructurales."
-  "Consistencia visual, design systems, accesibilidad, patrones UI/UX y coherencia entre repos. Evalua interfaces y propone estandarizacion."
-  "Calidad de codigo, principios SOLID/DRY, code smells, cobertura de tests y mejores practicas. Evalua implementaciones y propone mejoras de calidad."
-)
-
 # --- Helpers ---
 
 info()  { echo -e "\033[1;34m[info]\033[0m $*"; }
@@ -113,8 +96,6 @@ save_workspace_config() {
   cat > "$config_file" <<CONF
 MODEL_COORDINATOR=$OPT_MODEL_COORDINATOR
 MODEL_SPECIALIST=$OPT_MODEL_SPECIALIST
-MODEL_GLOBAL=$OPT_MODEL_GLOBAL
-GLOBAL_AGENTS=$OPT_GLOBAL_AGENTS
 CONF
   verbose "Saved config: $config_file"
 }
@@ -129,10 +110,6 @@ load_workspace_config() {
     [[ -n "$val" ]] && OPT_MODEL_COORDINATOR="$val"
     val=$(grep '^MODEL_SPECIALIST=' "$config_file" | cut -d= -f2) || true
     [[ -n "$val" ]] && OPT_MODEL_SPECIALIST="$val"
-    val=$(grep '^MODEL_GLOBAL=' "$config_file" | cut -d= -f2) || true
-    [[ -n "$val" ]] && OPT_MODEL_GLOBAL="$val"
-    val=$(grep '^GLOBAL_AGENTS=' "$config_file" | cut -d= -f2) || true
-    [[ -n "$val" ]] && OPT_GLOBAL_AGENTS="$val"
     verbose "Loaded config from: $config_file"
   fi
 }
@@ -212,62 +189,6 @@ remove_git_root_agent_symlinks() {
   done
 }
 
-# --- Build template sections ---
-
-build_global_agents_section_coordinator() {
-  if [[ "$OPT_GLOBAL_AGENTS" != "true" ]]; then
-    echo ""
-    return
-  fi
-
-  cat <<'SECTION'
-
-## Agentes globales disponibles
-
-Los siguientes agentes transversales estan disponibles para analisis cross-repo:
-
-| Agente | Rol |
-|--------|-----|
-| `architecture-agent` | Arquitectura, diseno de sistemas, dependencias, contratos API |
-| `style-agent` | Consistencia visual, design systems, accesibilidad, UI/UX |
-| `code-review-agent` | Calidad de codigo, SOLID/DRY, code smells, tests |
-
-- Invocar global agents para obtener analisis antes de tomar decisiones cross-repo.
-- Los global agents son de **solo lectura** — analizan y recomiendan, no modifican codigo.
-SECTION
-}
-
-build_global_agents_section_specialist() {
-  if [[ "$OPT_GLOBAL_AGENTS" != "true" ]]; then
-    echo ""
-    return
-  fi
-
-  cat <<'SECTION'
-
-## Agentes globales
-
-Puedes invocar estos agentes transversales para analisis dentro de tu repo:
-
-- `architecture-agent` — arquitectura y diseno de sistemas
-- `style-agent` — consistencia visual y UX
-- `code-review-agent` — calidad de codigo y mejores practicas
-
-Estos agentes son de **solo lectura** — analizan y recomiendan, no modifican codigo.
-SECTION
-}
-
-build_global_agents_table() {
-  if [[ "$OPT_GLOBAL_AGENTS" != "true" ]]; then
-    echo ""
-    return
-  fi
-
-  echo "| \`architecture-agent\` | Arquitectura, diseno de sistemas, dependencias | Todos los repos (solo lectura) |"
-  echo "| \`style-agent\` | Consistencia visual, design systems, accesibilidad | Todos los repos (solo lectura) |"
-  echo "| \`code-review-agent\` | Calidad de codigo, SOLID/DRY, tests | Todos los repos (solo lectura) |"
-}
-
 # --- setup ---
 
 cmd_setup() {
@@ -343,8 +264,7 @@ cmd_setup() {
   # Show summary
   echo ""
   info "Workspace: $workspace_path"
-  info "Models: coordinator=$OPT_MODEL_COORDINATOR, specialist=$OPT_MODEL_SPECIALIST, global=$OPT_MODEL_GLOBAL"
-  info "Global agents: $OPT_GLOBAL_AGENTS"
+  info "Models: coordinator=$OPT_MODEL_COORDINATOR, specialist=$OPT_MODEL_SPECIALIST"
   echo ""
   printf "  %-4s %-25s %-45s %s\n" "#" "Alias" "Path" "Stack"
   printf "  %-4s %-25s %-45s %s\n" "---" "-------------------------" "---------------------------------------------" "--------------------"
@@ -387,9 +307,6 @@ cmd_setup() {
     agents_table+="| \`${ALIASES[$i]}\` | Especialista ${PRIMARY_TECHS[$i]} | Repo $((i+1)) |"$'\n'
   done
 
-  local global_agents_table
-  global_agents_table=$(build_global_agents_table)
-
   local repos_word="repositorios"
   [[ $N -eq 1 ]] && repos_word="repositorio"
 
@@ -400,7 +317,6 @@ cmd_setup() {
   instructions="${instructions//\{\{repos_table\}\}/$repos_table}"
   instructions="${instructions//\{\{symlinks_table\}\}/$symlinks_table}"
   instructions="${instructions//\{\{agents_table\}\}/$agents_table}"
-  instructions="${instructions//\{\{global_agents_table\}\}/$global_agents_table}"
   instructions="${instructions//\{\{today\}\}/$today}"
 
   write_file "$workspace_path/AGENTS.md" "$instructions"
@@ -419,8 +335,6 @@ cmd_setup() {
     specialist_list+="\`${ALIASES[$i]}\`"
   done
 
-  local global_agents_section
-  global_agents_section=$(build_global_agents_section_coordinator)
   local skills_section=""
   local mcp_section=""
 
@@ -429,7 +343,6 @@ cmd_setup() {
   coordinator="${coordinator//\{\{N\}\}/$N}"
   coordinator="${coordinator//\{\{repos_word\}\}/$repos_word}"
   coordinator="${coordinator//\{\{specialist_list\}\}/$specialist_list}"
-  coordinator="${coordinator//\{\{global_agents_section\}\}/$global_agents_section}"
   coordinator="${coordinator//\{\{skills_section\}\}/$skills_section}"
   coordinator="${coordinator//\{\{mcp_section\}\}/$mcp_section}"
 
@@ -439,9 +352,6 @@ cmd_setup() {
     '"Read", "Glob", "Grep", "Task", "Bash"'
 
   # 4. Specialist agents
-  local global_agents_available
-  global_agents_available=$(build_global_agents_section_specialist)
-
   for i in "${!ALIASES[@]}"; do
     local stack_list=""
     IFS=',' read -ra parts <<< "${STACK_CSVS[$i]}"
@@ -457,7 +367,6 @@ cmd_setup() {
     specialist="${specialist//\{\{repo_path\}\}/${REPO_ABS_PATHS[$i]}}"
     specialist="${specialist//\{\{stack_list\}\}/$stack_list}"
     specialist="${specialist//\{\{verify_cmds\}\}/${VERIFY_CMDS_LIST[$i]}}"
-    specialist="${specialist//\{\{global_agents_available\}\}/$global_agents_available}"
     specialist="${specialist//\{\{skills_section\}\}/$skills_section}"
     specialist="${specialist//\{\{mcp_section\}\}/$mcp_section}"
 
@@ -467,32 +376,7 @@ cmd_setup() {
       '"Read", "Edit", "Write", "Glob", "Grep", "Bash"'
   done
 
-  # 5. Global agents
-  if [[ "$OPT_GLOBAL_AGENTS" == "true" ]]; then
-    info "Generating global agents..."
-
-    local repos_list=""
-    for i in "${!ALIASES[@]}"; do
-      repos_list+="- \`${ALIASES[$i]}\`: \`${REPO_ABS_PATHS[$i]}\`"$'\n'
-    done
-
-    for ga_idx in "${!GLOBAL_AGENT_NAMES[@]}"; do
-      local ga_body
-      ga_body=$(template "$TMPL_DIR/global-agent.md.tmpl")
-      ga_body="${ga_body//\{\{agent_name\}\}/${GLOBAL_AGENT_TITLES[$ga_idx]}}"
-      ga_body="${ga_body//\{\{agent_description\}\}/${GLOBAL_AGENT_LONG_DESCS[$ga_idx]}}"
-      ga_body="${ga_body//\{\{repos_list\}\}/$repos_list}"
-
-      write_agent_file "$workspace_path" \
-        "${GLOBAL_AGENT_NAMES[$ga_idx]}.md" \
-        "$ga_body" \
-        "$OPT_MODEL_GLOBAL" \
-        "${GLOBAL_AGENT_SHORT_DESCS[$ga_idx]}" \
-        '"Read", "Glob", "Grep", "Bash"'
-    done
-  fi
-
-  # 6. Output directories
+  # 5. Output directories
   write_file "$workspace_path/docs/.gitkeep" ""
   write_file "$workspace_path/scripts/.gitkeep" ""
 
@@ -514,7 +398,7 @@ cmd_setup() {
     fi
   done
 
-  # 8. Sync managed blocks in external repos
+  # 7. Sync managed blocks in external repos
   info "Syncing managed blocks in repos..."
   for i in "${!ALIASES[@]}"; do
     local verify_cmds_list=""
@@ -539,14 +423,14 @@ cmd_setup() {
     done
   done
 
-  # 9. Save workspace config
+  # 8. Save workspace config
   save_workspace_config "$workspace_path"
 
-  # 10. Git root symlinks
+  # 9. Git root symlinks
   remove_git_root_agent_symlinks "$workspace_path"
   create_git_root_agent_symlinks "$workspace_path"
 
-  # 11. Verify
+  # 10. Verify
   if $OPT_DRY_RUN; then
     echo ""
     ok "Dry-run complete. No files were written."
@@ -560,17 +444,11 @@ cmd_setup() {
     local symlink_count
     symlink_count=$(find "$workspace_path/repos" -maxdepth 1 -type l 2>/dev/null | wc -l | xargs || echo 0)
 
-    local global_count=0
-    if [[ "$OPT_GLOBAL_AGENTS" == "true" ]]; then
-      global_count=${#GLOBAL_AGENT_NAMES[@]}
-    fi
-
     echo ""
     ok "Workspace created successfully!"
     info "  Files generated: $file_count"
     info "  Symlinks created: $symlink_count"
     info "  Repos configured: $N"
-    info "  Global agents: $global_count"
     echo ""
     info "Next steps:"
     info "  cd $workspace_path && claude"
@@ -661,8 +539,6 @@ regenerate_workspace_docs() {
     specialist_list+="\`${regen_aliases[$i]}\`"
   done
 
-  local global_agents_section
-  global_agents_section=$(build_global_agents_section_coordinator)
   local skills_section=""
   local mcp_section=""
 
@@ -671,7 +547,6 @@ regenerate_workspace_docs() {
   coordinator="${coordinator//\{\{N\}\}/$N}"
   coordinator="${coordinator//\{\{repos_word\}\}/$repos_word}"
   coordinator="${coordinator//\{\{specialist_list\}\}/$specialist_list}"
-  coordinator="${coordinator//\{\{global_agents_section\}\}/$global_agents_section}"
   coordinator="${coordinator//\{\{skills_section\}\}/$skills_section}"
   coordinator="${coordinator//\{\{mcp_section\}\}/$mcp_section}"
 
@@ -696,9 +571,6 @@ regenerate_workspace_docs() {
     agents_table+="| \`${regen_aliases[$i]}\` | Especialista ${regen_techs[$i]} | Repo $((i+1)) |"$'\n'
   done
 
-  local global_agents_table
-  global_agents_table=$(build_global_agents_table)
-
   local instructions
   instructions=$(template "$TMPL_DIR/workspace-instructions.md.tmpl")
   instructions="${instructions//\{\{N\}\}/$N}"
@@ -706,7 +578,6 @@ regenerate_workspace_docs() {
   instructions="${instructions//\{\{repos_table\}\}/$repos_table}"
   instructions="${instructions//\{\{symlinks_table\}\}/$symlinks_table}"
   instructions="${instructions//\{\{agents_table\}\}/$agents_table}"
-  instructions="${instructions//\{\{global_agents_table\}\}/$global_agents_table}"
   instructions="${instructions//\{\{today\}\}/$today}"
 
   write_file "$workspace_path/AGENTS.md" "$instructions"
@@ -724,30 +595,7 @@ regenerate_workspace_docs() {
   settings_content="${settings_content//\{\{additional_directories\}\}/$additional_dirs}"
   write_file "$workspace_path/.claude/settings.json" "$settings_content"
 
-  # 4. Regenerate global agents
-  if [[ "$OPT_GLOBAL_AGENTS" == "true" ]]; then
-    local repos_list=""
-    for i in "${!regen_aliases[@]}"; do
-      repos_list+="- \`${regen_aliases[$i]}\`: \`${regen_paths[$i]}\`"$'\n'
-    done
-
-    for ga_idx in "${!GLOBAL_AGENT_NAMES[@]}"; do
-      local ga_body
-      ga_body=$(template "$TMPL_DIR/global-agent.md.tmpl")
-      ga_body="${ga_body//\{\{agent_name\}\}/${GLOBAL_AGENT_TITLES[$ga_idx]}}"
-      ga_body="${ga_body//\{\{agent_description\}\}/${GLOBAL_AGENT_LONG_DESCS[$ga_idx]}}"
-      ga_body="${ga_body//\{\{repos_list\}\}/$repos_list}"
-
-      write_agent_file "$workspace_path" \
-        "${GLOBAL_AGENT_NAMES[$ga_idx]}.md" \
-        "$ga_body" \
-        "$OPT_MODEL_GLOBAL" \
-        "${GLOBAL_AGENT_SHORT_DESCS[$ga_idx]}" \
-        '"Read", "Glob", "Grep", "Bash"'
-    done
-  fi
-
-  # 5. Refresh git root symlinks
+  # 4. Refresh git root symlinks
   remove_git_root_agent_symlinks "$workspace_path"
   create_git_root_agent_symlinks "$workspace_path"
 
@@ -799,8 +647,6 @@ cmd_add() {
     stack_list+="- $part"$'\n'
   done
 
-  local global_agents_available
-  global_agents_available=$(build_global_agents_section_specialist)
   local skills_section=""
   local mcp_section=""
 
@@ -811,7 +657,6 @@ cmd_add() {
   specialist="${specialist//\{\{repo_path\}\}/$repo_path}"
   specialist="${specialist//\{\{stack_list\}\}/$stack_list}"
   specialist="${specialist//\{\{verify_cmds\}\}/$DETECT_VERIFY_CMDS}"
-  specialist="${specialist//\{\{global_agents_available\}\}/$global_agents_available}"
   specialist="${specialist//\{\{skills_section\}\}/$skills_section}"
   specialist="${specialist//\{\{mcp_section\}\}/$mcp_section}"
 
@@ -976,22 +821,12 @@ cmd_status() {
   info "AGENTS.md $([ -f "$workspace_path/AGENTS.md" ] && echo "EXISTS" || echo "MISSING")"
   info "CLAUDE.md $([ -f "$workspace_path/CLAUDE.md" ] && echo "EXISTS" || echo "MISSING")"
 
-  # Global agents
-  local global_count=0
-  for ga_name in "${GLOBAL_AGENT_NAMES[@]}"; do
-    if [[ -f "$workspace_path/.claude/agents/${ga_name}.md" ]]; then
-      ((global_count++))
-    fi
-  done
-  info "Global agents: $global_count/${#GLOBAL_AGENT_NAMES[@]} (config: GLOBAL_AGENTS=$OPT_GLOBAL_AGENTS)"
-
   # Config persistence
   local config_file="$workspace_path/.claude/.multirepo-space.conf"
   if [[ -f "$config_file" ]]; then
     info "Workspace config: $config_file EXISTS"
     info "  MODEL_COORDINATOR=$OPT_MODEL_COORDINATOR"
     info "  MODEL_SPECIALIST=$OPT_MODEL_SPECIALIST"
-    info "  MODEL_GLOBAL=$OPT_MODEL_GLOBAL"
   else
     info "Workspace config: MISSING (using defaults)"
   fi
@@ -1038,13 +873,10 @@ Options:
   --version                     Show version
   --model-coordinator=MODEL     Model for coordinator agent (default: opus)
   --model-specialist=MODEL      Model for specialist agents (default: sonnet)
-  --model-global=MODEL          Model for global agents (default: sonnet)
-  --no-global-agents            Do not generate global transversal agents
 
 Examples:
   multirepo-space setup ~/workspace ~/repos/frontend ~/repos/backend
   multirepo-space setup ~/workspace ~/repos/fe ~/repos/be --model-coordinator=sonnet
-  multirepo-space setup ~/workspace ~/repos/fe ~/repos/be --no-global-agents
   multirepo-space add ~/workspace ~/repos/shared-lib
   multirepo-space remove ~/workspace shared-lib
   multirepo-space status ~/workspace
@@ -1064,8 +896,6 @@ main() {
       --version)    echo "multirepo-space v$VERSION"; exit 0 ;;
       --model-coordinator=*) OPT_MODEL_COORDINATOR="${1#*=}" ;;
       --model-specialist=*)  OPT_MODEL_SPECIALIST="${1#*=}" ;;
-      --model-global=*)      OPT_MODEL_GLOBAL="${1#*=}" ;;
-      --no-global-agents)    OPT_GLOBAL_AGENTS=false ;;
       *)
         if [[ -z "$cmd" ]]; then
           cmd="$1"

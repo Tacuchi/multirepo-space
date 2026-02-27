@@ -30,6 +30,7 @@ Estos enlaces permiten navegar los repos directamente desde el workspace sin cam
 
 - **Coordinador** (`coordinator`): punto de entrada para toda tarea multi-repo. Es la unica autoridad que delega trabajo a especialistas. Nunca modifica codigo fuente directamente en repos externos.
 - **Especialistas** (`repo-{alias}`): ejecutan **unicamente** tareas delegadas por el coordinador dentro de su repo asignado. No actuan por iniciativa propia ni aceptan instrucciones de otros agentes.
+- **Agentes globales** (opcionales, gestionados por el usuario): si el usuario ha creado agentes transversales, tanto el coordinador como los especialistas pueden invocarlos para analisis. Son de solo lectura.
 - Ante cualquier tarea que exceda el scope de un especialista, este debe reportar al coordinador para reasignacion.
 
 ## Protocolo cross-repo
@@ -53,7 +54,6 @@ Estos enlaces permiten navegar los repos directamente desde el workspace sin cam
 | Agente | Rol | Scope |
 |--------|-----|-------|
 {{agents_table}}
-{{global_agents_table}}
 
 ## currentDate
 

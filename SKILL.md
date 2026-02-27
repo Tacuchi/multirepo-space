@@ -26,7 +26,7 @@ User intent → Command:
 ## Before running — decision guide
 
 Before executing, think about the workspace design:
-- Do these repos share API contracts or interfaces? → they benefit from cross-repo analysis (global agents)
+- Do these repos share API contracts or interfaces? → they benefit from cross-repo analysis
 - Is the workspace inside an existing git repo? → git root symlinks will be needed
 - Will multiple workspaces coexist in the same git repo? → prefixed symlinks prevent collisions
 
@@ -35,8 +35,7 @@ Ask the user before executing:
 2. Is this a NEW workspace or adding to an EXISTING one? → `setup` vs `add`.
 3. Are all repo paths absolute? They MUST be absolute — symlinks break with relative paths.
 4. First time? Always suggest `--dry-run` so user can preview changes.
-5. Does the user want global transversal agents? Default is yes. Use `--no-global-agents` to opt out.
-6. Does the user need custom model assignments? Default: coordinator=opus, specialist=sonnet, global=sonnet.
+5. Does the user need custom model assignments? Default: coordinator=opus, specialist=sonnet.
 
 ## Flags — when to use each
 
@@ -47,8 +46,6 @@ Ask the user before executing:
 | `--verbose` | Debugging, verifying stack detection | Normal execution |
 | `--model-coordinator=MODEL` | User wants a specific model for the coordinator | Using default (opus) |
 | `--model-specialist=MODEL` | User wants a specific model for specialists | Using default (sonnet) |
-| `--model-global=MODEL` | User wants a specific model for global agents | Using default (sonnet) |
-| `--no-global-agents` | User explicitly does not want transversal agents | Default setup (global agents enabled) |
 
 ## If detect_stack returns "Generic"
 
@@ -82,17 +79,17 @@ Then manually add verify commands to the generated specialist agent file.
 
 Replace `$SKILL_DIR` with the absolute path to this skill's directory.
 
-Templates are in `$SKILL_DIR/templates/` — read them to understand what files get generated (e.g., `workspace-instructions.md.tmpl`, `coordinator.md.tmpl`, `specialist.md.tmpl`, `global-agent.md.tmpl`).
+Templates are in `$SKILL_DIR/templates/` — read them to understand what files get generated (e.g., `workspace-instructions.md.tmpl`, `coordinator.md.tmpl`, `specialist.md.tmpl`).
 
 ## Script behavior summary
 
 The scripts (`scripts/multirepo-space` for bash, `scripts/multirepo-space.ps1` for PowerShell) are fully offline — they make NO network requests and do NOT modify system files.
 
 What each subcommand does:
-- `setup`: reads repo manifest files (package.json, pom.xml, etc.) to detect tech stacks, then generates `.md` agent files, `.claude/settings.json`, and symlinks inside the workspace directory. Also appends a managed block to `AGENTS.md`/`CLAUDE.md` in each listed repo. Creates global transversal agents (architecture, style, code-review) unless `--no-global-agents`. If workspace is nested inside a git repo, creates prefixed symlinks in git root for agent discovery. Saves configuration to `.claude/.multirepo-space.conf`.
-- `add`: same as setup but for a single repo added to an existing workspace. Loads config from `.multirepo-space.conf` to preserve original model and global agent settings.
+- `setup`: reads repo manifest files (package.json, pom.xml, etc.) to detect tech stacks, then generates `.md` agent files, `.claude/settings.json`, and symlinks inside the workspace directory. Also appends a managed block to `AGENTS.md`/`CLAUDE.md` in each listed repo. If workspace is nested inside a git repo, creates prefixed symlinks in git root for agent discovery. Saves configuration to `.claude/.multirepo-space.conf`.
+- `add`: same as setup but for a single repo added to an existing workspace. Loads config from `.multirepo-space.conf` to preserve original model settings.
 - `remove`: deletes the specialist agent file and symlink for a repo, removes the managed block from the repo's `AGENTS.md`/`CLAUDE.md`, and refreshes git root symlinks.
-- `status`: read-only — checks symlink health, agent file parity, global agents, config persistence, and git root symlink state. Writes nothing.
+- `status`: read-only — checks symlink health, agent file parity, config persistence, and git root symlink state. Writes nothing.
 
 All extracted values from repo files are sanitized (length-limited, control characters and injection patterns stripped) before being inserted into templates.
 
@@ -105,16 +102,11 @@ Scope of filesystem writes is limited to:
 
 ```
 Coordinator (opus)
-├── architecture-agent (sonnet) — transversal, read-only
-├── style-agent (sonnet) — transversal, read-only
-├── code-review-agent (sonnet) — transversal, read-only
-├── repo-frontend (sonnet) — can invoke global agents
-└── repo-backend (sonnet) — can invoke global agents
+├── repo-frontend (sonnet)
+└── repo-backend (sonnet)
 ```
 
-- **Global agents**: read-only, analyze and recommend, never modify code
-- **Specialists** can invoke global agents for analysis within their repo
-- **Coordinator** invokes global agents for cross-repo analysis
+- If the user has created global agents (e.g., architecture, style, code-review), both the coordinator and specialists can invoke them for analysis. These agents are user-managed, read-only, and may not be present in all workspaces.
 
 ## Claude Code vs Codex compatibility
 
@@ -138,4 +130,3 @@ Coordinator (opus)
 - **Stack not detected**: the CLI falls back to "Generic" — specialist agent still gets created, just without stack-specific verify commands.
 - **Agents not discovered in nested workspace**: verify git root symlinks exist. Run `status` to check. Re-run `setup` if symlinks are missing.
 - **Partial setup failure** (files created but symlinks missing): re-run `setup` with same args — the script overwrites existing files safely and recreates all symlinks.
-- **Global agents not generated**: check if `--no-global-agents` was used during setup. Config is saved in `.claude/.multirepo-space.conf`.

@@ -31,23 +31,6 @@ $TmplDir = Join-Path $ScriptDir 'templates'
 # --- Model/global agent options (defaults, overrideable by flags or config) ---
 $script:ModelCoordinator = 'opus'
 $script:ModelSpecialist = 'sonnet'
-$script:ModelGlobal = 'sonnet'
-$script:GlobalAgents = $true
-
-# --- Global agent definitions ---
-$script:GlobalAgentNames = @('architecture-agent', 'style-agent', 'code-review-agent')
-$script:GlobalAgentTitles = @('Architecture Agent', 'Style Agent', 'Code Review Agent')
-$script:GlobalAgentShortDescs = @(
-  'Agente transversal de arquitectura y diseno de sistemas',
-  'Agente transversal de estilo, UX y design systems',
-  'Agente transversal de revision de codigo y calidad'
-)
-$script:GlobalAgentLongDescs = @(
-  'Analisis de arquitectura, diseno de sistemas, dependencias entre repos, contratos API e integracion. Evalua decisiones arquitectonicas y propone mejoras estructurales.',
-  'Consistencia visual, design systems, accesibilidad, patrones UI/UX y coherencia entre repos. Evalua interfaces y propone estandarizacion.',
-  'Calidad de codigo, principios SOLID/DRY, code smells, cobertura de tests y mejores practicas. Evalua implementaciones y propone mejoras de calidad.'
-)
-
 function Write-Info  { param([string]$Msg) Write-Host "[info] $Msg" -ForegroundColor Blue }
 function Write-Warn  { param([string]$Msg) Write-Host "[warn] $Msg" -ForegroundColor Yellow }
 function Write-Err   { param([string]$Msg) Write-Host "[error] $Msg" -ForegroundColor Red }
@@ -143,8 +126,6 @@ function Save-WorkspaceConfig {
   $configContent = @"
 MODEL_COORDINATOR=$($script:ModelCoordinator)
 MODEL_SPECIALIST=$($script:ModelSpecialist)
-MODEL_GLOBAL=$($script:ModelGlobal)
-GLOBAL_AGENTS=$($script:GlobalAgents.ToString().ToLower())
 "@
   Set-Content -Path $configFile -Value $configContent -NoNewline
   Write-Verbose_ "Saved config: $configFile"
@@ -159,8 +140,6 @@ function Import-WorkspaceConfig {
     foreach ($line in $lines) {
       if ($line -match '^MODEL_COORDINATOR=(.+)$') { $script:ModelCoordinator = $Matches[1] }
       elseif ($line -match '^MODEL_SPECIALIST=(.+)$') { $script:ModelSpecialist = $Matches[1] }
-      elseif ($line -match '^MODEL_GLOBAL=(.+)$') { $script:ModelGlobal = $Matches[1] }
-      elseif ($line -match '^GLOBAL_AGENTS=(.+)$') { $script:GlobalAgents = $Matches[1] -eq 'true' }
     }
     Write-Verbose_ "Loaded config from: $configFile"
   }
@@ -522,55 +501,6 @@ function Sync-ManagedBlock {
   Write-Verbose_ "Synced managed block: $TargetFile"
 }
 
-# --- Build template sections ---
-
-function Get-GlobalAgentsSectionCoordinator {
-  if (-not $script:GlobalAgents) { return '' }
-
-  return @"
-
-## Agentes globales disponibles
-
-Los siguientes agentes transversales estan disponibles para analisis cross-repo:
-
-| Agente | Rol |
-|--------|-----|
-| ``architecture-agent`` | Arquitectura, diseno de sistemas, dependencias, contratos API |
-| ``style-agent`` | Consistencia visual, design systems, accesibilidad, UI/UX |
-| ``code-review-agent`` | Calidad de codigo, SOLID/DRY, code smells, tests |
-
-- Invocar global agents para obtener analisis antes de tomar decisiones cross-repo.
-- Los global agents son de **solo lectura** — analizan y recomiendan, no modifican codigo.
-"@
-}
-
-function Get-GlobalAgentsSectionSpecialist {
-  if (-not $script:GlobalAgents) { return '' }
-
-  return @"
-
-## Agentes globales
-
-Puedes invocar estos agentes transversales para analisis dentro de tu repo:
-
-- ``architecture-agent`` — arquitectura y diseno de sistemas
-- ``style-agent`` — consistencia visual y UX
-- ``code-review-agent`` — calidad de codigo y mejores practicas
-
-Estos agentes son de **solo lectura** — analizan y recomiendan, no modifican codigo.
-"@
-}
-
-function Get-GlobalAgentsTable {
-  if (-not $script:GlobalAgents) { return '' }
-
-  return @"
-| ``architecture-agent`` | Arquitectura, diseno de sistemas, dependencias | Todos los repos (solo lectura) |
-| ``style-agent`` | Consistencia visual, design systems, accesibilidad | Todos los repos (solo lectura) |
-| ``code-review-agent`` | Calidad de codigo, SOLID/DRY, tests | Todos los repos (solo lectura) |
-"@
-}
-
 # --- regenerate workspace docs ---
 
 function Invoke-RegenerateWorkspaceDocs {
@@ -617,7 +547,6 @@ function Invoke-RegenerateWorkspaceDocs {
     $specialistList += "``$($regenAliases[$i])``"
   }
 
-  $globalAgentsSection = Get-GlobalAgentsSectionCoordinator
   $skillsSection = ''
   $mcpSection = ''
 
@@ -625,7 +554,6 @@ function Invoke-RegenerateWorkspaceDocs {
   $coordinator = $coordinator -replace '\{\{N\}\}', $N
   $coordinator = $coordinator -replace '\{\{repos_word\}\}', $reposWord
   $coordinator = $coordinator -replace '\{\{specialist_list\}\}', $specialistList
-  $coordinator = $coordinator -replace '\{\{global_agents_section\}\}', $globalAgentsSection
   $coordinator = $coordinator -replace '\{\{skills_section\}\}', $skillsSection
   $coordinator = $coordinator -replace '\{\{mcp_section\}\}', $mcpSection
 
@@ -651,15 +579,12 @@ function Invoke-RegenerateWorkspaceDocs {
     $agentsTable += "| ``$($regenAliases[$i])`` | Especialista $($regenTechs[$i]) | Repo $($i+1) |`n"
   }
 
-  $globalAgentsTable = Get-GlobalAgentsTable
-
   $instructions = Get-Template (Join-Path $TmplDir 'workspace-instructions.md.tmpl')
   $instructions = $instructions -replace '\{\{N\}\}', $N
   $instructions = $instructions -replace '\{\{repos_word\}\}', $reposWord
   $instructions = $instructions -replace '\{\{repos_table\}\}', $reposTable
   $instructions = $instructions -replace '\{\{symlinks_table\}\}', $symlinksTable
   $instructions = $instructions -replace '\{\{agents_table\}\}', $agentsTable
-  $instructions = $instructions -replace '\{\{global_agents_table\}\}', $globalAgentsTable
   $instructions = $instructions -replace '\{\{today\}\}', $today
 
   Write-OutputFile (Join-Path $WorkspacePath 'AGENTS.md') $instructions
@@ -675,27 +600,7 @@ function Invoke-RegenerateWorkspaceDocs {
   $settingsContent = $settingsContent -replace '\{\{additional_directories\}\}', ($additionalDirs -join "`n")
   Write-OutputFile (Join-PathSegments $WorkspacePath, '.claude', 'settings.json') $settingsContent
 
-  # 4. Regenerate global agents
-  if ($script:GlobalAgents) {
-    $reposList = ''
-    for ($i = 0; $i -lt $N; $i++) {
-      $reposList += "- ``$($regenAliases[$i])``: ``$($regenPaths[$i])```n"
-    }
-
-    for ($ga = 0; $ga -lt $script:GlobalAgentNames.Count; $ga++) {
-      $gaBody = Get-Template (Join-Path $TmplDir 'global-agent.md.tmpl')
-      $gaBody = $gaBody -replace '\{\{agent_name\}\}', $script:GlobalAgentTitles[$ga]
-      $gaBody = $gaBody -replace '\{\{agent_description\}\}', $script:GlobalAgentLongDescs[$ga]
-      $gaBody = $gaBody -replace '\{\{repos_list\}\}', $reposList
-
-      Write-AgentFile -WorkspacePath $WorkspacePath -AgentFilename "$($script:GlobalAgentNames[$ga]).md" -Body $gaBody `
-        -Model $script:ModelGlobal `
-        -Description $script:GlobalAgentShortDescs[$ga] `
-        -AllowedTools '"Read", "Glob", "Grep", "Bash"'
-    }
-  }
-
-  # 5. Refresh git root symlinks
+  # 4. Refresh git root symlinks
   Remove-GitRootAgentSymlinks -WorkspacePath $WorkspacePath
   New-GitRootAgentSymlinks -WorkspacePath $WorkspacePath
 
@@ -762,8 +667,7 @@ function Invoke-Setup {
 
   Write-Host ''
   Write-Info "Workspace: $workspacePath"
-  Write-Info "Models: coordinator=$($script:ModelCoordinator), specialist=$($script:ModelSpecialist), global=$($script:ModelGlobal)"
-  Write-Info "Global agents: $($script:GlobalAgents)"
+  Write-Info "Models: coordinator=$($script:ModelCoordinator), specialist=$($script:ModelSpecialist)"
   Write-Host ''
   '{0,-4} {1,-25} {2,-45} {3}' -f '#', 'Alias', 'Path', 'Stack' | Write-Host
   '{0,-4} {1,-25} {2,-45} {3}' -f '---', '-------------------------', '---------------------------------------------', '--------------------' | Write-Host
@@ -803,8 +707,6 @@ function Invoke-Setup {
     $agentsTable += "| ``$($aliases[$i])`` | Especialista $($primaryTechs[$i]) | Repo $($i+1) |`n"
   }
 
-  $globalAgentsTable = Get-GlobalAgentsTable
-
   $reposWord = if ($N -eq 1) { 'repositorio' } else { 'repositorios' }
 
   $instructions = Get-Template (Join-Path $TmplDir 'workspace-instructions.md.tmpl')
@@ -813,7 +715,6 @@ function Invoke-Setup {
   $instructions = $instructions -replace '\{\{repos_table\}\}', $reposTable
   $instructions = $instructions -replace '\{\{symlinks_table\}\}', $symlinksTable
   $instructions = $instructions -replace '\{\{agents_table\}\}', $agentsTable
-  $instructions = $instructions -replace '\{\{global_agents_table\}\}', $globalAgentsTable
   $instructions = $instructions -replace '\{\{today\}\}', $today
 
   Write-OutputFile (Join-Path $workspacePath 'AGENTS.md') $instructions
@@ -828,7 +729,6 @@ function Invoke-Setup {
     $specialistList += "``$($aliases[$i])``"
   }
 
-  $globalAgentsSection = Get-GlobalAgentsSectionCoordinator
   $skillsSection = ''
   $mcpSection = ''
 
@@ -836,7 +736,6 @@ function Invoke-Setup {
   $coordinator = $coordinator -replace '\{\{N\}\}', $N
   $coordinator = $coordinator -replace '\{\{repos_word\}\}', $reposWord
   $coordinator = $coordinator -replace '\{\{specialist_list\}\}', $specialistList
-  $coordinator = $coordinator -replace '\{\{global_agents_section\}\}', $globalAgentsSection
   $coordinator = $coordinator -replace '\{\{skills_section\}\}', $skillsSection
   $coordinator = $coordinator -replace '\{\{mcp_section\}\}', $mcpSection
 
@@ -846,8 +745,6 @@ function Invoke-Setup {
     -AllowedTools '"Read", "Glob", "Grep", "Task", "Bash"'
 
   # 4. Specialist agents
-  $globalAgentsAvailable = Get-GlobalAgentsSectionSpecialist
-
   for ($i = 0; $i -lt $N; $i++) {
     $stackList = ''
     foreach ($part in ($stackCsvs[$i] -split ',')) {
@@ -861,7 +758,6 @@ function Invoke-Setup {
     $specialist = $specialist -replace '\{\{repo_path\}\}', $repoPaths[$i]
     $specialist = $specialist -replace '\{\{stack_list\}\}', $stackList
     $specialist = $specialist -replace '\{\{verify_cmds\}\}', $verifyCmdsList[$i]
-    $specialist = $specialist -replace '\{\{global_agents_available\}\}', $globalAgentsAvailable
     $specialist = $specialist -replace '\{\{skills_section\}\}', $skillsSection
     $specialist = $specialist -replace '\{\{mcp_section\}\}', $mcpSection
 
@@ -871,33 +767,11 @@ function Invoke-Setup {
       -AllowedTools '"Read", "Edit", "Write", "Glob", "Grep", "Bash"'
   }
 
-  # 5. Global agents
-  if ($script:GlobalAgents) {
-    Write-Info 'Generating global agents...'
-
-    $reposList = ''
-    for ($i = 0; $i -lt $N; $i++) {
-      $reposList += "- ``$($aliases[$i])``: ``$($repoPaths[$i])```n"
-    }
-
-    for ($ga = 0; $ga -lt $script:GlobalAgentNames.Count; $ga++) {
-      $gaBody = Get-Template (Join-Path $TmplDir 'global-agent.md.tmpl')
-      $gaBody = $gaBody -replace '\{\{agent_name\}\}', $script:GlobalAgentTitles[$ga]
-      $gaBody = $gaBody -replace '\{\{agent_description\}\}', $script:GlobalAgentLongDescs[$ga]
-      $gaBody = $gaBody -replace '\{\{repos_list\}\}', $reposList
-
-      Write-AgentFile -WorkspacePath $workspacePath -AgentFilename "$($script:GlobalAgentNames[$ga]).md" -Body $gaBody `
-        -Model $script:ModelGlobal `
-        -Description $script:GlobalAgentShortDescs[$ga] `
-        -AllowedTools '"Read", "Glob", "Grep", "Bash"'
-    }
-  }
-
-  # 6. Output directories
+  # 5. Output directories
   Write-OutputFile (Join-PathSegments $workspacePath, 'docs', '.gitkeep') ''
   Write-OutputFile (Join-PathSegments $workspacePath, 'scripts', '.gitkeep') ''
 
-  # 7. Symlinks
+  # 6. Symlinks
   Write-Info 'Creating repo symlinks...'
   $reposDir = Join-Path $workspacePath 'repos'
   if (-not $script:DryRun) {
@@ -913,7 +787,7 @@ function Invoke-Setup {
     }
   }
 
-  # 8. Sync managed blocks
+  # 7. Sync managed blocks
   Write-Info 'Syncing managed blocks in repos...'
   for ($i = 0; $i -lt $N; $i++) {
     $verifyCmdListStr = ''
@@ -935,29 +809,25 @@ function Invoke-Setup {
     }
   }
 
-  # 9. Save workspace config
+  # 8. Save workspace config
   Save-WorkspaceConfig -WorkspacePath $workspacePath
 
-  # 10. Git root symlinks
+  # 9. Git root symlinks
   Remove-GitRootAgentSymlinks -WorkspacePath $workspacePath
   New-GitRootAgentSymlinks -WorkspacePath $workspacePath
 
-  # 11. Verify
+  # 10. Verify
   Write-Info 'Verifying workspace integrity...'
   $fileCount = (Get-ChildItem -Path $workspacePath -Recurse -File -Include '*.md', '*.json', '.gitkeep', '*.conf' -ErrorAction SilentlyContinue |
     Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' }).Count
   $symlinkCount = (Get-ChildItem -Path $reposDir -ErrorAction SilentlyContinue |
     Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count
 
-  $globalCount = 0
-  if ($script:GlobalAgents) { $globalCount = $script:GlobalAgentNames.Count }
-
   Write-Host ''
   Write-Ok 'Workspace created successfully!'
   Write-Info "  Files generated: $fileCount"
   Write-Info "  Symlinks created: $symlinkCount"
   Write-Info "  Repos configured: $N"
-  Write-Info "  Global agents: $globalCount"
   Write-Host ''
   Write-Info "Next steps:"
   Write-Info "  cd $workspacePath; claude"
@@ -1005,7 +875,6 @@ function Invoke-Add {
     $stackList += "- $($part.Trim())`n"
   }
 
-  $globalAgentsAvailable = Get-GlobalAgentsSectionSpecialist
   $skillsSection = ''
   $mcpSection = ''
 
@@ -1015,7 +884,6 @@ function Invoke-Add {
   $specialist = $specialist -replace '\{\{repo_path\}\}', $repoPath
   $specialist = $specialist -replace '\{\{stack_list\}\}', $stackList
   $specialist = $specialist -replace '\{\{verify_cmds\}\}', $det.VerifyCmds
-  $specialist = $specialist -replace '\{\{global_agents_available\}\}', $globalAgentsAvailable
   $specialist = $specialist -replace '\{\{skills_section\}\}', $skillsSection
   $specialist = $specialist -replace '\{\{mcp_section\}\}', $mcpSection
 
@@ -1169,21 +1037,12 @@ function Invoke-Status {
   Write-Info "AGENTS.md $agentsMdExists"
   Write-Info "CLAUDE.md $claudeMdExists"
 
-  # Global agents
-  $globalCount = 0
-  foreach ($gaName in $script:GlobalAgentNames) {
-    if (Test-Path (Join-PathSegments $workspacePath, '.claude', 'agents', "$gaName.md")) { $globalCount++ }
-  }
-  $gaTotal = $script:GlobalAgentNames.Count
-  Write-Info "Global agents: $globalCount/$gaTotal (config: GLOBAL_AGENTS=$($script:GlobalAgents))"
-
   # Config persistence
   $configFile = Join-PathSegments $workspacePath, '.claude', '.multirepo-space.conf'
   if (Test-Path $configFile) {
     Write-Info "Workspace config: $configFile EXISTS"
     Write-Info "  MODEL_COORDINATOR=$($script:ModelCoordinator)"
     Write-Info "  MODEL_SPECIALIST=$($script:ModelSpecialist)"
-    Write-Info "  MODEL_GLOBAL=$($script:ModelGlobal)"
   } else {
     Write-Info 'Workspace config: MISSING (using defaults)'
   }
@@ -1229,16 +1088,13 @@ Options:
   -Help                         Show this help
   -Version_                     Show version
 
-  Model and global agent flags (pass as remaining args after command):
+  Model flags (pass as remaining args after command):
     --model-coordinator=MODEL   Model for coordinator agent (default: opus)
     --model-specialist=MODEL    Model for specialist agents (default: sonnet)
-    --model-global=MODEL        Model for global agents (default: sonnet)
-    --no-global-agents          Do not generate global transversal agents
 
 Examples:
   .\multirepo-space.ps1 setup ~\workspace ~\repos\frontend ~\repos\backend
   .\multirepo-space.ps1 setup ~\workspace ~\repos\fe ~\repos\be --model-coordinator=sonnet
-  .\multirepo-space.ps1 setup ~\workspace ~\repos\fe ~\repos\be --no-global-agents
   .\multirepo-space.ps1 add ~\workspace ~\repos\shared-lib
   .\multirepo-space.ps1 remove ~\workspace shared-lib
   .\multirepo-space.ps1 status ~\workspace
@@ -1253,8 +1109,6 @@ function Split-ExtraFlags {
   foreach ($arg in $ArgsIn) {
     if ($arg -match '^--model-coordinator=(.+)$') { $script:ModelCoordinator = $Matches[1] }
     elseif ($arg -match '^--model-specialist=(.+)$') { $script:ModelSpecialist = $Matches[1] }
-    elseif ($arg -match '^--model-global=(.+)$') { $script:ModelGlobal = $Matches[1] }
-    elseif ($arg -eq '--no-global-agents') { $script:GlobalAgents = $false }
     else { $cleanArgs += $arg }
   }
   return $cleanArgs
