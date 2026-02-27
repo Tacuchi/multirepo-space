@@ -99,12 +99,13 @@ function Write-AgentFile {
     [string]$Description,
     [string]$AllowedTools
   )
+  $agentName = $AgentFilename -replace '\.md$', ''
 
   # .agents/ — plain markdown (Codex/Gemini/Cursor compatible)
   Write-OutputFile (Join-PathSegments $WorkspacePath, '.agents', $AgentFilename) $Body
 
-  # .claude/agents/ — with YAML frontmatter
-  $frontmatter = "---`nmodel: $Model`ndescription: `"$Description`"`nallowedTools: [$AllowedTools]`n---`n`n"
+  # .claude/agents/ — with YAML frontmatter (name is required for Claude Code discovery)
+  $frontmatter = "---`nname: $agentName`nmodel: $Model`ndescription: `"$Description`"`ntools: [$AllowedTools]`n---`n`n"
   $withFrontmatter = $frontmatter + $Body
   Write-OutputFile (Join-PathSegments $WorkspacePath, '.claude', 'agents', $AgentFilename) $withFrontmatter
 }

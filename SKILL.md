@@ -107,10 +107,11 @@ Coordinator (opus)
 ```
 
 - If the user has created global agents (e.g., architecture, style, code-review), both the coordinator and specialists can invoke them for analysis. These agents are user-managed, read-only, and may not be present in all workspaces.
+- Note: the coordinator acts as a contextual guide — it orients the user on which specialist to invoke but does not automatically delegate tasks. Each specialist is invoked directly by the user.
 
 ## Claude Code vs Codex compatibility
 
-- `.claude/agents/*.md` → includes YAML frontmatter (model, description, allowedTools)
+- `.claude/agents/*.md` → includes YAML frontmatter (name, model, description, tools)
 - `.agents/*.md` → plain markdown only, no frontmatter (Codex/Gemini/Cursor compatible)
 - Both directories contain identical agent logic, only the frontmatter differs
 

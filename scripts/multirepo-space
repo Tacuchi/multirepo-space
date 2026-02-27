@@ -66,15 +66,17 @@ write_agent_file() {
   local model="$4"
   local description="$5"
   local allowed_tools="$6"
+  local agent_name="${agent_filename%.md}"
 
   # .agents/ — plain markdown (Codex/Gemini/Cursor compatible)
   write_file "$workspace_path/.agents/$agent_filename" "$body"
 
-  # .claude/agents/ — with YAML frontmatter
+  # .claude/agents/ — with YAML frontmatter (name is required for Claude Code discovery)
   local with_frontmatter="---
+name: $agent_name
 model: $model
 description: \"$description\"
-allowedTools: [$allowed_tools]
+tools: [$allowed_tools]
 ---
 
 $body"
