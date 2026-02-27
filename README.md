@@ -6,8 +6,12 @@ Multi-repo workspace manager for AI coding agents. Scaffold, manage, and orchest
 
 - **Detects tech stacks** automatically (Angular, React, Spring Boot, Flutter, Go, Rust, .NET, Python, and more)
 - **Generates workspace files**: `AGENTS.md`, `CLAUDE.md`, `.claude/settings.json`, coordinator and specialist agents
+- **Creates global transversal agents**: architecture, style, and code-review agents with read-only cross-repo access
+- **YAML frontmatter** for Claude Code agents (model, description, allowedTools) — `.agents/` stays plain markdown for Codex/Gemini
+- **Git root symlinks** for workspaces nested inside monorepos — agents are discoverable from the git root
 - **Creates repo symlinks** for direct filesystem access
 - **Syncs managed blocks** in each repo's instruction files
+- **Persists configuration** (model assignments, global agent preferences) across `add`/`remove` operations
 - **Cross-platform**: bash (macOS/Linux/WSL) + PowerShell (Windows)
 
 ## Install
@@ -21,6 +25,12 @@ npx skills add <owner>/multirepo-space -g
 ```bash
 # Scaffold a new workspace
 multirepo-space setup ~/my-workspace ~/repos/frontend ~/repos/backend ~/repos/shared
+
+# With custom model assignments
+multirepo-space setup ~/my-workspace ~/repos/fe ~/repos/be --model-coordinator=sonnet
+
+# Without global transversal agents
+multirepo-space setup ~/my-workspace ~/repos/fe ~/repos/be --no-global-agents
 
 # Add a repo to an existing workspace
 multirepo-space add ~/my-workspace ~/repos/new-service
@@ -41,6 +51,10 @@ multirepo-space status ~/my-workspace
 | `-v`, `--verbose` | Detailed output |
 | `-h`, `--help` | Show help |
 | `--version` | Show version |
+| `--model-coordinator=MODEL` | Model for coordinator agent (default: `opus`) |
+| `--model-specialist=MODEL` | Model for specialist agents (default: `sonnet`) |
+| `--model-global=MODEL` | Model for global agents (default: `sonnet`) |
+| `--no-global-agents` | Do not generate global transversal agents |
 
 ## How it works
 
@@ -52,12 +66,19 @@ my-workspace/
 ├── CLAUDE.md                    # Claude Code instructions (same content)
 ├── .claude/
 │   ├── settings.json            # additionalDirectories for Claude Code
+│   ├── .multirepo-space.conf    # Persisted workspace configuration
 │   └── agents/
-│       ├── coordinator.md       # Orchestrator agent
-│       └── repo-<alias>.md      # Specialist per repo
+│       ├── coordinator.md       # Orchestrator agent (with YAML frontmatter)
+│       ├── repo-<alias>.md      # Specialist per repo (with YAML frontmatter)
+│       ├── architecture-agent.md # Global: architecture & system design
+│       ├── style-agent.md       # Global: visual consistency & UX
+│       └── code-review-agent.md # Global: code quality & best practices
 ├── .agents/
-│   ├── coordinator.md           # Orchestrator agent (Codex compatible)
-│   └── repo-<alias>.md          # Specialist per repo
+│   ├── coordinator.md           # Orchestrator agent (plain markdown, Codex compatible)
+│   ├── repo-<alias>.md          # Specialist per repo
+│   ├── architecture-agent.md    # Global agents (plain markdown)
+│   ├── style-agent.md
+│   └── code-review-agent.md
 ├── repos/
 │   ├── frontend -> /path/to/frontend
 │   └── backend -> /path/to/backend
@@ -65,21 +86,46 @@ my-workspace/
 └── scripts/
 ```
 
+### Agent hierarchy
+
+```
+Coordinator (opus)
+├── architecture-agent (sonnet) — transversal, read-only
+├── style-agent (sonnet) — transversal, read-only
+├── code-review-agent (sonnet) — transversal, read-only
+├── repo-frontend (sonnet) — can invoke global agents
+└── repo-backend (sonnet) — can invoke global agents
+```
+
+### Nested workspace support
+
+When the workspace is inside a git repo (e.g., `monorepo/projects/my-workspace/`), Claude Code and Codex discover agents from the git root, not the CWD. The tool automatically creates prefixed symlinks in `<git-root>/.claude/agents/` and `<git-root>/.agents/` so all agents remain discoverable:
+
+```
+<git-root>/.claude/agents/ws-my-workspace--coordinator.md -> my-workspace/.claude/agents/coordinator.md
+<git-root>/.claude/agents/ws-my-workspace--repo-frontend.md -> ...
+```
+
+### Claude Code vs Codex
+
+- `.claude/agents/*.md` includes YAML frontmatter (`model`, `description`, `allowedTools`)
+- `.agents/*.md` contains plain markdown only (compatible with Codex, Gemini, Cursor)
+
 Each external repo gets a managed block appended to its `AGENTS.md` and `CLAUDE.md` with workspace context.
 
 ## Agent Skill
 
 This project is also an [Agent Skill](https://agentskills.io). When installed, AI agents can invoke it automatically when you say things like "create a multi-repo workspace" or "add a repo to the workspace".
 
-The SKILL.md is intentionally minimal (~25 lines) — all heavy lifting is done by the bundled scripts, consuming zero tokens.
+The SKILL.md is intentionally minimal — all heavy lifting is done by the bundled scripts, consuming zero tokens.
 
 ## Compatibility
 
 | Tool | Reads | Generated files |
 |------|-------|-----------------|
-| Claude Code | `~/.claude/skills/` | `.claude/settings.json`, `CLAUDE.md`, `.claude/agents/` |
-| Codex CLI | `~/.codex/skills/` | `AGENTS.md`, `.agents/` |
-| Gemini CLI | `~/.gemini/skills/` | `AGENTS.md`, `.agents/` |
+| Claude Code | `~/.claude/skills/` | `.claude/settings.json`, `CLAUDE.md`, `.claude/agents/` (with frontmatter) |
+| Codex CLI | `~/.codex/skills/` | `AGENTS.md`, `.agents/` (plain markdown) |
+| Gemini CLI | `~/.gemini/skills/` | `AGENTS.md`, `.agents/` (plain markdown) |
 | Copilot | `.github/skills/` | `AGENTS.md` |
 | Cursor | `~/.cursor/skills/` | `AGENTS.md` |
 
