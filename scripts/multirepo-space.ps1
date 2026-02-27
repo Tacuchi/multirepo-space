@@ -108,6 +108,11 @@ function Write-AgentFile {
   $frontmatter = "---`nname: $agentName`nmodel: $Model`ndescription: `"$Description`"`ntools: [$AllowedTools]`n---`n`n"
   $withFrontmatter = $frontmatter + $Body
   Write-OutputFile (Join-PathSegments $WorkspacePath, '.claude', 'agents', $AgentFilename) $withFrontmatter
+
+  # .agents/skills/<name>/SKILL.md — Agent Skills standard (Warp/Codex/Cursor/Gemini CLI)
+  $skillFrontmatter = "---`nname: $agentName`ndescription: `"$Description`"`n---`n`n"
+  $skillContent = $skillFrontmatter + $Body
+  Write-OutputFile (Join-PathSegments $WorkspacePath, '.agents', 'skills', $agentName, 'SKILL.md') $skillContent
 }
 
 # --- Config persistence ---

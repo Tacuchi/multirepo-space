@@ -8,6 +8,7 @@ Multi-repo workspace manager for AI coding agents. Scaffold, manage, and orchest
 - **Generates workspace files**: `AGENTS.md`, `CLAUDE.md`, `.claude/settings.json`, coordinator and specialist agents
 - **Creates global transversal agents**: architecture, style, and code-review agents with read-only cross-repo access
 - **YAML frontmatter** for Claude Code agents (name, model, description, tools) — `.agents/` stays plain markdown for Codex/Gemini
+- **Agent Skills standard** — generates `.agents/skills/<name>/SKILL.md` for Warp, Codex, Cursor, Gemini CLI
 - **Creates repo symlinks** for direct filesystem access
 - **Syncs managed blocks** in each repo's instruction files
 - **Persists configuration** (model assignments, global agent preferences) across `add`/`remove` operations
@@ -96,11 +97,12 @@ Coordinator (opus)
 └── repo-backend (sonnet) — can invoke global agents
 ```
 
+### Multi-agent compatibility
 
-### Claude Code vs Codex
-
-- `.claude/agents/*.md` includes YAML frontmatter (`name`, `model`, `description`, `tools`)
+- `.claude/agents/*.md` includes YAML frontmatter (`name`, `model`, `description`, `tools`) for Claude Code
 - `.agents/*.md` contains plain markdown only (compatible with Codex, Gemini, Cursor)
+- `.agents/skills/<name>/SKILL.md` follows the Agent Skills standard (`name`, `description`) for Warp, Codex, Cursor, Gemini CLI
+- `AGENTS.md` is used as project rules by Warp, Codex, Gemini CLI, Cursor and 20+ tools
 
 Each external repo gets a managed block appended to its `AGENTS.md` and `CLAUDE.md` with workspace context.
 

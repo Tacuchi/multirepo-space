@@ -81,6 +81,15 @@ tools: [$allowed_tools]
 
 $body"
   write_file "$workspace_path/.claude/agents/$agent_filename" "$with_frontmatter"
+
+  # .agents/skills/<name>/SKILL.md — Agent Skills standard (Warp/Codex/Cursor/Gemini CLI)
+  local skill_content="---
+name: $agent_name
+description: \"$description\"
+---
+
+$body"
+  write_file "$workspace_path/.agents/skills/$agent_name/SKILL.md" "$skill_content"
 }
 
 # --- Config persistence ---
