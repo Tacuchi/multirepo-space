@@ -146,83 +146,6 @@ function Import-WorkspaceConfig {
   }
 }
 
-# --- Git root symlink helpers ---
-
-function Get-GitRoot {
-  param([string]$Dir)
-  try {
-    $root = & git -C $Dir rev-parse --show-toplevel 2>$null
-    if ($LASTEXITCODE -eq 0 -and $root) { return $root.Trim() }
-  } catch {}
-  return ''
-}
-
-function New-GitRootAgentSymlinks {
-  param([string]$WorkspacePath)
-  $workspaceName = Split-Path -Leaf $WorkspacePath
-  $gitRoot = Get-GitRoot $WorkspacePath
-
-  if (-not $gitRoot) { return }
-  if ($gitRoot -eq $WorkspacePath) { return }
-
-  $prefix = "ws-${workspaceName}--"
-
-  if ($script:DryRun) {
-    Write-Info "[dry-run] Would create git root agent symlinks in $gitRoot"
-    return
-  }
-
-  foreach ($agentDir in @('.claude\agents', '.agents')) {
-    $srcDir = Join-Path $WorkspacePath $agentDir
-    $destDir = Join-Path $gitRoot $agentDir
-    if (-not (Test-Path $srcDir)) { continue }
-    if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
-
-    foreach ($agentFile in Get-ChildItem -Path $srcDir -Filter '*.md' -ErrorAction SilentlyContinue) {
-      $linkName = "${prefix}$($agentFile.Name)"
-      $linkPath = Join-Path $destDir $linkName
-
-      if (Test-Path $linkPath) { Remove-Item $linkPath -Force }
-      try {
-        New-Item -ItemType SymbolicLink -Path $linkPath -Target $agentFile.FullName -ErrorAction Stop | Out-Null
-      } catch {
-        New-Item -ItemType Junction -Path $linkPath -Target $agentFile.FullName -ErrorAction Stop | Out-Null
-      }
-      Write-Verbose_ "Git root symlink: $linkPath -> $($agentFile.FullName)"
-    }
-  }
-
-  Write-Info "Git root agent symlinks created in: $gitRoot"
-}
-
-function Remove-GitRootAgentSymlinks {
-  param([string]$WorkspacePath)
-  $workspaceName = Split-Path -Leaf $WorkspacePath
-  $gitRoot = Get-GitRoot $WorkspacePath
-
-  if (-not $gitRoot) { return }
-  if ($gitRoot -eq $WorkspacePath) { return }
-
-  $prefix = "ws-${workspaceName}--"
-
-  if ($script:DryRun) {
-    Write-Info "[dry-run] Would remove git root agent symlinks from $gitRoot"
-    return
-  }
-
-  foreach ($agentDir in @('.claude\agents', '.agents')) {
-    $destDir = Join-Path $gitRoot $agentDir
-    if (-not (Test-Path $destDir)) { continue }
-
-    foreach ($item in Get-ChildItem -Path $destDir -Filter "${prefix}*.md" -ErrorAction SilentlyContinue) {
-      if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-        Remove-Item $item.FullName -Force
-        Write-Verbose_ "Removed git root symlink: $($item.FullName)"
-      }
-    }
-  }
-}
-
 # --- Sanitization ---
 
 function Invoke-Sanitize {
@@ -601,9 +524,6 @@ function Invoke-RegenerateWorkspaceDocs {
   $settingsContent = $settingsContent -replace '\{\{additional_directories\}\}', ($additionalDirs -join "`n")
   Write-OutputFile (Join-PathSegments $WorkspacePath, '.claude', 'settings.json') $settingsContent
 
-  # 4. Refresh git root symlinks
-  Remove-GitRootAgentSymlinks -WorkspacePath $WorkspacePath
-  New-GitRootAgentSymlinks -WorkspacePath $WorkspacePath
 
   Write-Verbose_ "Regenerated workspace docs ($N repos)"
 }
@@ -813,9 +733,6 @@ function Invoke-Setup {
   # 8. Save workspace config
   Save-WorkspaceConfig -WorkspacePath $workspacePath
 
-  # 9. Git root symlinks
-  Remove-GitRootAgentSymlinks -WorkspacePath $workspacePath
-  New-GitRootAgentSymlinks -WorkspacePath $workspacePath
 
   # 10. Verify
   Write-Info 'Verifying workspace integrity...'
@@ -1048,23 +965,7 @@ function Invoke-Status {
     Write-Info 'Workspace config: MISSING (using defaults)'
   }
 
-  # Git root symlinks
-  $gitRoot = Get-GitRoot $workspacePath
-  if ($gitRoot -and $gitRoot -ne $workspacePath) {
-    $prefix = "ws-${workspaceName}--"
-    $grSymlinks = 0
-    foreach ($agentDir in @('.claude\agents', '.agents')) {
-      $destDir = Join-Path $gitRoot $agentDir
-      if (Test-Path $destDir) {
-        foreach ($item in Get-ChildItem -Path $destDir -Filter "${prefix}*.md" -ErrorAction SilentlyContinue) {
-          if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { $grSymlinks++ }
-        }
-      }
-    }
-    Write-Info "Git root: $gitRoot (symlinks: $grSymlinks)"
-  } else {
-    Write-Info 'Git root: N/A (workspace is git root or not in git repo)'
-  }
+
 }
 
 # --- Usage ---

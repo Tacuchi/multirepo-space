@@ -116,80 +116,6 @@ load_workspace_config() {
   fi
 }
 
-# --- Git root symlink helpers ---
-
-detect_git_root() {
-  local dir="$1"
-  git -C "$dir" rev-parse --show-toplevel 2>/dev/null || echo ""
-}
-
-create_git_root_agent_symlinks() {
-  local workspace_path="$1"
-  local workspace_name
-  workspace_name=$(basename "$workspace_path")
-  local git_root
-  git_root=$(detect_git_root "$workspace_path")
-
-  [[ -z "$git_root" ]] && return 0
-  [[ "$git_root" == "$workspace_path" ]] && return 0
-
-  local prefix="ws-${workspace_name}--"
-
-  if $OPT_DRY_RUN; then
-    info "[dry-run] Would create git root agent symlinks in $git_root"
-    return 0
-  fi
-
-  for agent_dir in ".claude/agents" ".agents"; do
-    local src_dir="$workspace_path/$agent_dir"
-    local dest_dir="$git_root/$agent_dir"
-    [[ -d "$src_dir" ]] || continue
-    mkdir -p "$dest_dir"
-
-    for agent_file in "$src_dir"/*.md; do
-      [[ -f "$agent_file" ]] || continue
-      local base
-      base=$(basename "$agent_file")
-      local link_name="${prefix}${base}"
-      local link_path="$dest_dir/$link_name"
-
-      [[ -L "$link_path" ]] && rm "$link_path"
-      ln -s "$agent_file" "$link_path"
-      verbose "Git root symlink: $link_path -> $agent_file"
-    done
-  done
-
-  info "Git root agent symlinks created in: $git_root"
-}
-
-remove_git_root_agent_symlinks() {
-  local workspace_path="$1"
-  local workspace_name
-  workspace_name=$(basename "$workspace_path")
-  local git_root
-  git_root=$(detect_git_root "$workspace_path")
-
-  [[ -z "$git_root" ]] && return 0
-  [[ "$git_root" == "$workspace_path" ]] && return 0
-
-  local prefix="ws-${workspace_name}--"
-
-  if $OPT_DRY_RUN; then
-    info "[dry-run] Would remove git root agent symlinks from $git_root"
-    return 0
-  fi
-
-  for agent_dir in ".claude/agents" ".agents"; do
-    local dest_dir="$git_root/$agent_dir"
-    [[ -d "$dest_dir" ]] || continue
-
-    for link in "$dest_dir"/${prefix}*.md; do
-      [[ -L "$link" ]] || continue
-      rm "$link"
-      verbose "Removed git root symlink: $link"
-    done
-  done
-}
 
 # --- setup ---
 
@@ -428,9 +354,6 @@ cmd_setup() {
   # 8. Save workspace config
   save_workspace_config "$workspace_path"
 
-  # 9. Git root symlinks
-  remove_git_root_agent_symlinks "$workspace_path"
-  create_git_root_agent_symlinks "$workspace_path"
 
   # 10. Verify
   if $OPT_DRY_RUN; then
@@ -597,9 +520,6 @@ regenerate_workspace_docs() {
   settings_content="${settings_content//\{\{additional_directories\}\}/$additional_dirs}"
   write_file "$workspace_path/.claude/settings.json" "$settings_content"
 
-  # 4. Refresh git root symlinks
-  remove_git_root_agent_symlinks "$workspace_path"
-  create_git_root_agent_symlinks "$workspace_path"
 
   verbose "Regenerated workspace docs ($N repos)"
 }
@@ -833,23 +753,6 @@ cmd_status() {
     info "Workspace config: MISSING (using defaults)"
   fi
 
-  # Git root symlinks
-  local git_root
-  git_root=$(detect_git_root "$workspace_path")
-  if [[ -n "$git_root" ]] && [[ "$git_root" != "$workspace_path" ]]; then
-    local prefix="ws-${workspace_name}--"
-    local gr_symlinks=0
-    for agent_dir in ".claude/agents" ".agents"; do
-      local dest_dir="$git_root/$agent_dir"
-      [[ -d "$dest_dir" ]] || continue
-      for link in "$dest_dir"/${prefix}*.md; do
-        [[ -L "$link" ]] && ((gr_symlinks++))
-      done
-    done
-    info "Git root: $git_root (symlinks: $gr_symlinks)"
-  else
-    info "Git root: N/A (workspace is git root or not in git repo)"
-  fi
 }
 
 # --- Main ---

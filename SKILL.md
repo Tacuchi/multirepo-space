@@ -27,7 +27,6 @@ User intent → Command:
 
 Before executing, think about the workspace design:
 - Do these repos share API contracts or interfaces? → they benefit from cross-repo analysis
-- Is the workspace inside an existing git repo? → git root symlinks will be needed
 - Will multiple workspaces coexist in the same git repo? → prefixed symlinks prevent collisions
 
 Ask the user before executing:
@@ -66,7 +65,6 @@ Then manually add verify commands to the generated specialist agent file.
 - Skip `--dry-run` for first-time users — always suggest preview first.
 - Assume symlinks always work on Windows — the PowerShell port falls back to junctions when symlinks need elevation, but junctions only support local directories (not network paths).
 - Assume workspace exists — verify with `status` before running `add` or `remove`.
-- Create the workspace directory inside one of the repos — git root detection will find the repo itself, creating circular symlink references.
 - Edit managed blocks manually in external repos — they get overwritten on next `add`/`setup`.
 - Run `add` with a repo whose basename matches an existing alias — the previous specialist gets overwritten without warning.
 - Modify `settings.json` manually — the CLI expects a specific format and manual edits can break parsing in `add`/`remove`.
@@ -86,17 +84,16 @@ Templates are in `$SKILL_DIR/templates/` — read them to understand what files 
 The scripts (`scripts/multirepo-space` for bash, `scripts/multirepo-space.ps1` for PowerShell) are fully offline — they make NO network requests and do NOT modify system files.
 
 What each subcommand does:
-- `setup`: reads repo manifest files (package.json, pom.xml, etc.) to detect tech stacks, then generates `.md` agent files, `.claude/settings.json`, and symlinks inside the workspace directory. Also appends a managed block to `AGENTS.md`/`CLAUDE.md` in each listed repo. If workspace is nested inside a git repo, creates prefixed symlinks in git root for agent discovery. Saves configuration to `.claude/.multirepo-space.conf`.
+- `setup`: reads repo manifest files (package.json, pom.xml, etc.) to detect tech stacks, then generates `.md` agent files, `.claude/settings.json`, and symlinks inside the workspace directory. Also appends a managed block to `AGENTS.md`/`CLAUDE.md` in each listed repo. Saves configuration to `.claude/.multirepo-space.conf`.
 - `add`: same as setup but for a single repo added to an existing workspace. Loads config from `.multirepo-space.conf` to preserve original model settings.
-- `remove`: deletes the specialist agent file and symlink for a repo, removes the managed block from the repo's `AGENTS.md`/`CLAUDE.md`, and refreshes git root symlinks.
-- `status`: read-only — checks symlink health, agent file parity, config persistence, and git root symlink state. Writes nothing.
+- `remove`: deletes the specialist agent file and symlink for a repo, removes the managed block from the repo's `AGENTS.md`/`CLAUDE.md`.
+- `status`: read-only — checks symlink health, agent file parity, and config persistence. Writes nothing.
 
 All extracted values from repo files are sanitized (length-limited, control characters and injection patterns stripped) before being inserted into templates.
 
 Scope of filesystem writes is limited to:
 1. The workspace directory (files it creates)
 2. `AGENTS.md`/`CLAUDE.md` inside each configured repo (managed block only, delimited by `<!-- MULTIREPO_SPACE_MANAGED:START/END -->` markers)
-3. Git root `.claude/agents/` and `.agents/` directories (symlinks only, prefixed with `ws-<name>--`)
 
 ## Agent hierarchy
 
@@ -121,13 +118,11 @@ Coordinator (opus)
 - Check that AGENTS.md and CLAUDE.md exist in both the workspace and each external repo.
 - If `setup` failed mid-way, it's safe to re-run — existing files get overwritten.
 - To start working: `cd <workspace_path> && claude` or `cd <workspace_path> && codex`.
-- If workspace is nested in a git repo, verify git root symlinks with `ls -la <git-root>/.claude/agents/ws-*`.
-
+- Check that AGENTS.md and CLAUDE.md exist in both the workspace and each external repo.
 ## Common issues
 
 - **"Workspace path does not exist"**: create directory first, then run `setup`.
 - **Broken symlinks after moving repos**: re-run `setup` with updated absolute paths.
 - **"Permission denied" on Windows**: run PowerShell as Administrator for symlink creation.
 - **Stack not detected**: the CLI falls back to "Generic" — specialist agent still gets created, just without stack-specific verify commands.
-- **Agents not discovered in nested workspace**: verify git root symlinks exist. Run `status` to check. Re-run `setup` if symlinks are missing.
 - **Partial setup failure** (files created but symlinks missing): re-run `setup` with same args — the script overwrites existing files safely and recreates all symlinks.

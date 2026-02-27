@@ -8,7 +8,6 @@ Multi-repo workspace manager for AI coding agents. Scaffold, manage, and orchest
 - **Generates workspace files**: `AGENTS.md`, `CLAUDE.md`, `.claude/settings.json`, coordinator and specialist agents
 - **Creates global transversal agents**: architecture, style, and code-review agents with read-only cross-repo access
 - **YAML frontmatter** for Claude Code agents (name, model, description, tools) — `.agents/` stays plain markdown for Codex/Gemini
-- **Git root symlinks** for workspaces nested inside monorepos — agents are discoverable from the git root
 - **Creates repo symlinks** for direct filesystem access
 - **Syncs managed blocks** in each repo's instruction files
 - **Persists configuration** (model assignments, global agent preferences) across `add`/`remove` operations
@@ -97,14 +96,6 @@ Coordinator (opus)
 └── repo-backend (sonnet) — can invoke global agents
 ```
 
-### Nested workspace support
-
-When the workspace is inside a git repo (e.g., `monorepo/projects/my-workspace/`), Claude Code and Codex discover agents from the git root, not the CWD. The tool automatically creates prefixed symlinks in `<git-root>/.claude/agents/` and `<git-root>/.agents/` so all agents remain discoverable:
-
-```
-<git-root>/.claude/agents/ws-my-workspace--coordinator.md -> my-workspace/.claude/agents/coordinator.md
-<git-root>/.claude/agents/ws-my-workspace--repo-frontend.md -> ...
-```
 
 ### Claude Code vs Codex
 
