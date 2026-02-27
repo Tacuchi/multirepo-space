@@ -335,30 +335,6 @@ cmd_setup() {
     fi
   done
 
-  # 7. Sync managed blocks in external repos
-  info "Syncing managed blocks in repos..."
-  for i in "${!ALIASES[@]}"; do
-    local verify_cmds_list=""
-    if [[ -n "${VERIFY_CMDS_LIST[$i]}" ]]; then
-      IFS=',' read -ra vcmds <<< "${VERIFY_CMDS_LIST[$i]}"
-      for vc in "${vcmds[@]}"; do
-        vc=$(echo "$vc" | xargs)
-        verify_cmds_list+="- \`$vc\`"$'\n'
-      done
-    fi
-
-    local block
-    block=$(template "$TMPL_DIR/managed-block.md.tmpl")
-    block="${block//\{\{workspace_name\}\}/$workspace_name}"
-    block="${block//\{\{workspace_path\}\}/$workspace_path}"
-    block="${block//\{\{alias\}\}/${ALIASES[$i]}}"
-    block="${block//\{\{verify_cmds_list\}\}/$verify_cmds_list}"
-
-    for target_file in "AGENTS.md" "CLAUDE.md"; do
-      local repo_file="${REPO_ABS_PATHS[$i]}/$target_file"
-      sync_managed_block "$repo_file" "$block"
-    done
-  done
 
   # 8. Save workspace config
   save_workspace_config "$workspace_path"
@@ -390,36 +366,6 @@ cmd_setup() {
   fi
 }
 
-sync_managed_block() {
-  local target_file="$1"
-  local block="$2"
-  local start_marker="<!-- MULTIREPO_SPACE_MANAGED:START -->"
-  local end_marker="<!-- MULTIREPO_SPACE_MANAGED:END -->"
-
-  if $OPT_DRY_RUN; then
-    info "[dry-run] Would sync managed block in: $target_file"
-    return 0
-  fi
-
-  if [[ -f "$target_file" ]]; then
-    local content
-    content=$(cat "$target_file")
-    if echo "$content" | grep -q "$start_marker"; then
-      # Replace existing block
-      local before after
-      before=$(echo "$content" | sed "/$start_marker/,\$d")
-      after=$(echo "$content" | sed "1,/$end_marker/d")
-      echo "${before}${block}${after}" > "$target_file"
-    else
-      # Append block
-      echo "" >> "$target_file"
-      echo "$block" >> "$target_file"
-    fi
-  else
-    echo "$block" > "$target_file"
-  fi
-  verbose "Synced managed block: $target_file"
-}
 
 # --- regenerate workspace docs ---
 
@@ -604,26 +550,6 @@ cmd_add() {
     ln -s "$repo_path" "$link_path"
   fi
 
-  # Sync managed block
-  local verify_cmds_list=""
-  if [[ -n "$DETECT_VERIFY_CMDS" ]]; then
-    IFS=',' read -ra vcmds <<< "$DETECT_VERIFY_CMDS"
-    for vc in "${vcmds[@]}"; do
-      vc=$(echo "$vc" | xargs)
-      verify_cmds_list+="- \`$vc\`"$'\n'
-    done
-  fi
-
-  local block
-  block=$(template "$TMPL_DIR/managed-block.md.tmpl")
-  block="${block//\{\{workspace_name\}\}/$workspace_name}"
-  block="${block//\{\{workspace_path\}\}/$workspace_path}"
-  block="${block//\{\{alias\}\}/$alias_name}"
-  block="${block//\{\{verify_cmds_list\}\}/$verify_cmds_list}"
-
-  for target_file in "AGENTS.md" "CLAUDE.md"; do
-    sync_managed_block "$repo_path/$target_file" "$block"
-  done
 
   # Regenerate all workspace docs (coordinator + AGENTS.md + CLAUDE.md + settings.json + global agents + git root symlinks)
   regenerate_workspace_docs "$workspace_path"
@@ -674,16 +600,6 @@ cmd_remove() {
       verbose "Removed symlink: $alias_name"
     fi
 
-    # Remove managed block from repo
-    if [[ -d "$repo_path" ]]; then
-      for target_file in "AGENTS.md" "CLAUDE.md"; do
-        local repo_file="$repo_path/$target_file"
-        if [[ -f "$repo_file" ]] && ! $OPT_DRY_RUN; then
-          sed "/<!-- MULTIREPO_SPACE_MANAGED:START -->/,/<!-- MULTIREPO_SPACE_MANAGED:END -->/d" "$repo_file" > "$repo_file.tmp" && mv "$repo_file.tmp" "$repo_file"
-          verbose "Cleaned managed block: $repo_file"
-        fi
-      done
-    fi
   fi
 
   # Regenerate all workspace docs (coordinator + AGENTS.md + CLAUDE.md + settings.json + global agents + git root symlinks)

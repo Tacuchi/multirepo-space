@@ -400,35 +400,6 @@ function Get-RepoAlias {
   return $alias
 }
 
-# --- Managed Block ---
-
-function Sync-ManagedBlock {
-  param([string]$TargetFile, [string]$Block)
-
-  $startMarker = '<!-- MULTIREPO_SPACE_MANAGED:START -->'
-  $endMarker = '<!-- MULTIREPO_SPACE_MANAGED:END -->'
-
-  if ($script:DryRun) {
-    Write-Info "[dry-run] Would sync managed block in: $TargetFile"
-    return
-  }
-
-  if (Test-Path $TargetFile) {
-    $content = Get-Content -Path $TargetFile -Raw
-    if ($content -match [regex]::Escape($startMarker)) {
-      $pattern = "(?s)$([regex]::Escape($startMarker)).*?$([regex]::Escape($endMarker))"
-      $content = $content -replace $pattern, $Block.TrimEnd()
-      Set-Content -Path $TargetFile -Value $content -NoNewline
-    }
-    else {
-      Add-Content -Path $TargetFile -Value "`n$Block"
-    }
-  }
-  else {
-    Set-Content -Path $TargetFile -Value $Block -NoNewline
-  }
-  Write-Verbose_ "Synced managed block: $TargetFile"
-}
 
 # --- regenerate workspace docs ---
 
@@ -713,27 +684,6 @@ function Invoke-Setup {
     }
   }
 
-  # 7. Sync managed blocks
-  Write-Info 'Syncing managed blocks in repos...'
-  for ($i = 0; $i -lt $N; $i++) {
-    $verifyCmdListStr = ''
-    if ($verifyCmdsList[$i]) {
-      foreach ($vc in ($verifyCmdsList[$i] -split ',')) {
-        $vc = $vc.Trim()
-        $verifyCmdListStr += "- ``$vc```n"
-      }
-    }
-
-    $block = Get-Template (Join-Path $TmplDir 'managed-block.md.tmpl')
-    $block = $block -replace '\{\{workspace_name\}\}', $workspaceName
-    $block = $block -replace '\{\{workspace_path\}\}', $workspacePath
-    $block = $block -replace '\{\{alias\}\}', $aliases[$i]
-    $block = $block -replace '\{\{verify_cmds_list\}\}', $verifyCmdListStr
-
-    foreach ($targetFile in @('AGENTS.md', 'CLAUDE.md')) {
-      Sync-ManagedBlock (Join-Path $repoPaths[$i] $targetFile) $block
-    }
-  }
 
   # 8. Save workspace config
   Save-WorkspaceConfig -WorkspacePath $workspacePath
@@ -823,23 +773,6 @@ function Invoke-Add {
     New-RepoLink -LinkPath $linkPath -Target $repoPath
   }
 
-  # Managed block
-  $verifyCmdListStr = ''
-  if ($det.VerifyCmds) {
-    foreach ($vc in ($det.VerifyCmds -split ',')) {
-      $verifyCmdListStr += "- ``$($vc.Trim())```n"
-    }
-  }
-
-  $block = Get-Template (Join-Path $TmplDir 'managed-block.md.tmpl')
-  $block = $block -replace '\{\{workspace_name\}\}', $workspaceName
-  $block = $block -replace '\{\{workspace_path\}\}', $workspacePath
-  $block = $block -replace '\{\{alias\}\}', $aliasName
-  $block = $block -replace '\{\{verify_cmds_list\}\}', $verifyCmdListStr
-
-  foreach ($tf in @('AGENTS.md', 'CLAUDE.md')) {
-    Sync-ManagedBlock (Join-Path $repoPath $tf) $block
-  }
 
   # Regenerate all workspace docs
   Invoke-RegenerateWorkspaceDocs -WorkspacePath $workspacePath
@@ -883,21 +816,6 @@ function Invoke-Remove {
       Write-Verbose_ "Removed symlink: $aliasName"
     }
 
-    # Clean managed block from repo
-    if ($repoPath -and (Test-Path $repoPath)) {
-      $startMarker = '<!-- MULTIREPO_SPACE_MANAGED:START -->'
-      $endMarker = '<!-- MULTIREPO_SPACE_MANAGED:END -->'
-      foreach ($tf in @('AGENTS.md', 'CLAUDE.md')) {
-        $repoFile = Join-Path $repoPath $tf
-        if ((Test-Path $repoFile) -and -not $script:DryRun) {
-          $content = Get-Content -Path $repoFile -Raw
-          $pattern = "(?s)`n?$([regex]::Escape($startMarker)).*?$([regex]::Escape($endMarker))`n?"
-          $content = $content -replace $pattern, ''
-          Set-Content -Path $repoFile -Value $content -NoNewline
-          Write-Verbose_ "Cleaned managed block: $repoFile"
-        }
-      }
-    }
   }
 
   # Regenerate all workspace docs

@@ -10,7 +10,6 @@ Multi-repo workspace manager for AI coding agents. Scaffold, manage, and orchest
 - **YAML frontmatter** for Claude Code agents (name, model, description, tools) — `.agents/` stays plain markdown for Codex/Gemini
 - **Agent Skills standard** — generates `.agents/skills/<name>/SKILL.md` for Warp, Codex, Cursor, Gemini CLI
 - **Creates repo symlinks** for direct filesystem access
-- **Syncs managed blocks** in each repo's instruction files
 - **Persists configuration** (model assignments, global agent preferences) across `add`/`remove` operations
 - **Cross-platform**: bash (macOS/Linux/WSL) + PowerShell (Windows)
 
@@ -104,7 +103,6 @@ Coordinator (opus)
 - `.agents/skills/<name>/SKILL.md` follows the Agent Skills standard (`name`, `description`) for Warp, Codex, Cursor, Gemini CLI
 - `AGENTS.md` is used as project rules by Warp, Codex, Gemini CLI, Cursor and 20+ tools
 
-Each external repo gets a managed block appended to its `AGENTS.md` and `CLAUDE.md` with workspace context.
 
 ## Agent Skill
 
