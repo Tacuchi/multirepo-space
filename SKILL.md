@@ -35,7 +35,20 @@ User intent → Action:
 - Workspace dir exists? If not, `mkdir` first.
 - New workspace or existing? → `setup` vs `add`.
 - All repo paths absolute? Required — symlinks break with relative paths.
-- First time? Suggest `--dry-run` to preview.
+- Always run with `--dry-run` first and show the user the output before executing.
+
+## Security
+
+Write commands (`setup`, `add`, `remove`) perform irreversible filesystem changes:
+symlinks, file overwrites (AGENTS.md, CLAUDE.md, settings.json), and `rm -rf` on skill dirs.
+
+**Before any write command:**
+1. Run the command with `--dry-run` and show the output to the user.
+2. Ask for explicit approval: "Proceed with the above changes?"
+3. Only after approval, re-run without `--dry-run`.
+
+Never pass `-y` to `workspace-setup.sh` without prior user approval in the current session.
+`agent-factory create` writes files; confirm with the user before invoking.
 
 ## Full setup flow
 
@@ -46,7 +59,13 @@ npx @tacuchi/agent-factory detect <repo_path> --json -q
 Capture JSON. Extract `alias`, `primaryTech`, `stackCsv`, `verifyCommands`.
 Use `stackCsv` exactly as returned — pass full value to `--stacks`.
 
-### Step 2: Create workspace infrastructure
+### Step 2: Preview workspace infrastructure (dry-run)
+```
+bash "$SKILL_DIR/scripts/workspace-setup.sh" setup <workspace_path> <repo1> <repo2> ... \
+  --stacks "stackCsv1|stackCsv2|..." --dry-run
+```
+
+Show output to user. Ask: "Proceed with these changes?" On approval:
 ```
 bash "$SKILL_DIR/scripts/workspace-setup.sh" setup <workspace_path> <repo1> <repo2> ... \
   --stacks "stackCsv1|stackCsv2|..." -y
@@ -54,20 +73,21 @@ bash "$SKILL_DIR/scripts/workspace-setup.sh" setup <workspace_path> <repo1> <rep
 Creates: dirs, symlinks, settings.json, AGENTS.md, CLAUDE.md, config.
 
 ### Step 3: Create specialist agents
-Per repo:
+Confirm with the user before running. Per repo:
 ```
 npx @tacuchi/agent-factory create \
   --name repo-<alias> --role specialist --scope <repo_path> \
-  --output <workspace_path> --target all -y -q
+  --output <workspace_path> --target all -q
 ```
 Auto-appends `-agent` suffix: `repo-<alias>` → `repo-<alias>-agent.md`.
 
 ### Step 4: Create coordinator agent
+Confirm with the user before running.
 ```
 npx @tacuchi/agent-factory create \
   --name coordinator --role coordinator --model opus \
   --specialists "repo-<alias1>-agent,repo-<alias2>-agent,..." \
-  --repo-count <N> --output <workspace_path> --target all -y -q
+  --repo-count <N> --output <workspace_path> --target all -q
 ```
 `--specialists` list must use full names with `-agent` suffix.
 
@@ -78,43 +98,57 @@ npx @tacuchi/agent-factory create \
 npx @tacuchi/agent-factory detect <repo_path> --json -q
 ```
 
-### Step 2: Add to workspace
+### Step 2: Preview add (dry-run)
+```
+bash "$SKILL_DIR/scripts/workspace-setup.sh" add <workspace_path> <repo_path> \
+  --alias <alias> --stack-csv "<stackCsv>" --dry-run
+```
+
+Show output to user. Ask: "Proceed with these changes?" On approval:
 ```
 bash "$SKILL_DIR/scripts/workspace-setup.sh" add <workspace_path> <repo_path> \
   --alias <alias> --stack-csv "<stackCsv>" -y
 ```
 
 ### Step 3: Create specialist
+Confirm with the user before running.
 ```
 npx @tacuchi/agent-factory create \
   --name repo-<alias> --role specialist --scope <repo_path> \
-  --output <workspace_path> --target all -y -q
+  --output <workspace_path> --target all -q
 ```
 
 ### Step 4: Regenerate coordinator
-Get updated specialist list (with `-agent` suffix) from existing symlinks:
+Get updated specialist list (with `-agent` suffix) from existing symlinks.
+Confirm with the user before running.
 ```
 npx @tacuchi/agent-factory create \
   --name coordinator --role coordinator --model opus \
   --specialists "<updated_csv_list_with_agent_suffix>" \
-  --repo-count <updated_N> --output <workspace_path> --target all -y -q
+  --repo-count <updated_N> --output <workspace_path> --target all -q
 ```
 
 ## Remove repo flow
 
-### Step 1: Remove infrastructure + agent files
+### Step 1: Preview removal (dry-run)
+```
+bash "$SKILL_DIR/scripts/workspace-setup.sh" remove <workspace_path> <alias> --dry-run
+```
+
+Show output to user. Ask: "Proceed with these changes?" On approval:
 ```
 bash "$SKILL_DIR/scripts/workspace-setup.sh" remove <workspace_path> <alias> -y
 ```
 Removes: symlink, agent files (.agents/, .claude/agents/, .agents/skills/), regenerates docs.
 
 ### Step 2: Regenerate coordinator
-Get updated specialist list from remaining symlinks:
+Get updated specialist list from remaining symlinks.
+Confirm with the user before running.
 ```
 npx @tacuchi/agent-factory create \
   --name coordinator --role coordinator --model opus \
   --specialists "<updated_csv_list>" --repo-count <updated_N> \
-  --output <workspace_path> --target all -y -q
+  --output <workspace_path> --target all -q
 ```
 
 ## Status flow
@@ -126,7 +160,8 @@ npx @tacuchi/agent-factory list <workspace_path>
 
 ## Custom agent flow
 
-To create additional agents (architecture, style, code-review, etc.):
+To create additional agents (architecture, style, code-review, etc.).
+Confirm with the user before running.
 ```
 npx @tacuchi/agent-factory create \
   --name <agent-name> \
@@ -135,7 +170,7 @@ npx @tacuchi/agent-factory create \
   --instructions "<body text or path to .md file>" \
   --model sonnet \
   --output <workspace_path> \
-  --target all -y -q
+  --target all -q
 ```
 
 ## If detect returns "Generic"
@@ -145,11 +180,12 @@ Then pass `--stack-csv` to the setup/add command so it persists in config.
 
 ## Constraints
 
-- Single repo or monorepo (Nx/Turborepo) → do NOT use this skill.
-- Never run setup on populated workspace without user confirmation.
+- Always run `--dry-run` and show output to user before any write command.
+- Always confirm with the user before invoking `agent-factory create`.
+- Never pass `-y` without explicit user approval in the current session.
 - Always use absolute paths — symlinks break with relative.
-- Suggest `--dry-run` for first-time users.
 - Do not modify `settings.json` manually.
+- Single repo or monorepo (Nx/Turborepo) → do NOT use this skill.
 
 Replace `$SKILL_DIR` with the absolute path to this skill's directory.
 
