@@ -1,6 +1,6 @@
 # Orquestador Multi-Repo
 
-Workspace central que gestiona {{N}} {{repos_word}} externos. No contiene codigo propio; orquesta, documenta y consolida.
+Workspace central — {{N}} {{repos_word}} externos. Orquesta, documenta y consolida.
 
 ## Repos
 
@@ -14,19 +14,16 @@ Workspace central que gestiona {{N}} {{repos_word}} externos. No contiene codigo
 |--------|-----|-------|
 {{agents_table}}
 
-- Invocar especialistas via `/agents` o `Task`.
-- Agentes globales opcionales (arquitectura, estilo, etc.) pueden ser invocados por coordinador y especialistas.
+→ Invocar especialistas via `/agents` o `Task`. Agentes globales disponibles para coordinador y especialistas.
 
 ## Reglas
 
-- Documentacion y artefactos: `./docs/<tema>/`. Scripts: `./scripts/`.
-- **No crear** documentacion dentro de repos externos — solo codigo y config.
-- Planificar antes de tocar codigo. Cambios minimos y testeables.
-- Reporte obligatorio: archivos tocados, motivo, comandos de verificacion.
+→ Docs/artefactos: `./docs/<tema>/`. Scripts: `./scripts/`.
+→ **No crear** docs dentro de repos externos.
+→ Planificar → cambios minimos → reportar archivos tocados, motivo, verificacion.
 
 ## Compatibilidad
 
-- **Claude Code**: `CLAUDE.md`, `.claude/agents/`, `.claude/settings.json`
-- **Codex/Gemini/Cursor**: `AGENTS.md`, `.agents/`
+**Claude Code**: `CLAUDE.md`, `.claude/agents/`, `.claude/settings.json` | **Codex/Gemini/Cursor**: `AGENTS.md`, `.agents/`
 
 Fecha: {{today}}

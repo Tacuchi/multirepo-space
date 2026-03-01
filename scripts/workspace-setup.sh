@@ -168,8 +168,7 @@ cmd_setup() {
     if $OPT_DRY_RUN; then
       info "[dry-run] Would symlink: $link -> $abs_rp"
     else
-      [[ -L "$link" ]] && rm "$link"
-      ln -s "$abs_rp" "$link"
+      ln -sf "$abs_rp" "$link"
     fi
     _sk_set "$alias" "${stacks_arr[$idx]:-Generic}"
     ((idx++)) || true
