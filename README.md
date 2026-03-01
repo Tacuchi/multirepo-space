@@ -1,17 +1,27 @@
 # multirepo-space
 
-Multi-repo workspace manager for AI coding agents. Scaffold, manage, and orchestrate workspaces that span multiple repositories — compatible with **Claude Code**, **Codex CLI**, **Gemini CLI**, **Copilot**, **Cursor**, and any tool supporting the [Agent Skills](https://agentskills.io) standard.
+Multi-repo workspace manager for AI coding agents — an [Agent Skill](https://agentskills.io) that orchestrates [`@tacuchi/agent-factory`](https://www.npmjs.com/package/@tacuchi/agent-factory) and a bundled workspace setup script.
 
-## What it does
+Compatible with **Claude Code**, **Codex CLI**, **Gemini CLI**, **Copilot**, **Cursor**, and any tool supporting the Agent Skills standard.
 
-- **Detects tech stacks** automatically (Angular, React, Spring Boot, Flutter, Go, Rust, .NET, Python, and more)
-- **Generates workspace files**: `AGENTS.md`, `CLAUDE.md`, `.claude/settings.json`, coordinator and specialist agents
-- **Creates global transversal agents**: architecture, style, and code-review agents with read-only cross-repo access
-- **YAML frontmatter** for Claude Code agents (name, model, description, tools) — `.agents/` stays plain markdown for Codex/Gemini
-- **Agent Skills standard** — generates `.agents/skills/<name>/SKILL.md` for Warp, Codex, Cursor, Gemini CLI
-- **Creates repo symlinks** for direct filesystem access
-- **Persists configuration** (model assignments, global agent preferences) across `add`/`remove` operations
-- **Cross-platform**: bash (macOS/Linux/WSL) + PowerShell (Windows)
+## Architecture
+
+This SKILL orchestrates two tools:
+
+- **`@tacuchi/agent-factory`** — npm CLI that detects tech stacks and creates AI agents in 3 formats
+- **`workspace-setup.sh`** — bundled bash script for workspace infrastructure (dirs, symlinks, settings.json, docs)
+
+```
+multirepo-space (SKILL)
+├── SKILL.md              # Teaches the AI agent when/how to use both tools
+├── scripts/
+│   └── workspace-setup.sh  # Infrastructure: dirs, symlinks, settings.json, AGENTS.md
+├── templates/
+│   ├── workspace-instructions.md.tmpl
+│   └── settings.json.tmpl
+├── README.md
+└── LICENSE
+```
 
 ## Install
 
@@ -19,65 +29,32 @@ Multi-repo workspace manager for AI coding agents. Scaffold, manage, and orchest
 npx skills add <owner>/multirepo-space -g
 ```
 
-## Usage
-
-```bash
-# Scaffold a new workspace
-multirepo-space setup ~/my-workspace ~/repos/frontend ~/repos/backend ~/repos/shared
-
-# With custom model assignments
-multirepo-space setup ~/my-workspace ~/repos/fe ~/repos/be --model-coordinator=sonnet
-
-# Without global transversal agents
-multirepo-space setup ~/my-workspace ~/repos/fe ~/repos/be --no-global-agents
-
-# Add a repo to an existing workspace
-multirepo-space add ~/my-workspace ~/repos/new-service
-
-# Remove a repo
-multirepo-space remove ~/my-workspace new-service
-
-# Check workspace health
-multirepo-space status ~/my-workspace
-```
-
-### Options
-
-| Flag | Description |
-|------|-------------|
-| `-y`, `--yes` | Non-interactive mode (skip confirmations) |
-| `-n`, `--dry-run` | Preview changes without writing |
-| `-v`, `--verbose` | Detailed output |
-| `-h`, `--help` | Show help |
-| `--version` | Show version |
-| `--model-coordinator=MODEL` | Model for coordinator agent (default: `opus`) |
-| `--model-specialist=MODEL` | Model for specialist agents (default: `sonnet`) |
-| `--model-global=MODEL` | Model for global agents (default: `sonnet`) |
-| `--no-global-agents` | Do not generate global transversal agents |
-
 ## How it works
 
-`multirepo-space setup` creates a central workspace directory with:
+When you tell your AI agent "create a multi-repo workspace", the SKILL orchestrates:
+
+1. **Detect stacks** — `agent-factory detect <path> --json -q` for each repo
+2. **Create infrastructure** — `workspace-setup.sh setup` creates dirs, symlinks, settings.json, AGENTS.md/CLAUDE.md
+3. **Create agents** — `agent-factory create` generates specialist + coordinator agents in 3 formats
+
+### Generated workspace
 
 ```
 my-workspace/
-├── AGENTS.md                    # Universal instructions (Codex, Copilot, Gemini, etc.)
-├── CLAUDE.md                    # Claude Code instructions (same content)
+├── AGENTS.md                    # Universal instructions
+├── CLAUDE.md                    # Claude Code instructions
 ├── .claude/
-│   ├── settings.json            # additionalDirectories for Claude Code
-│   ├── .multirepo-space.conf    # Persisted workspace configuration
+│   ├── settings.json            # additionalDirectories
+│   ├── .multirepo-space.conf    # Persisted config (stacks, paths)
 │   └── agents/
-│       ├── coordinator.md       # Orchestrator agent (with YAML frontmatter)
-│       ├── repo-<alias>.md      # Specialist per repo (with YAML frontmatter)
-│       ├── architecture-agent.md # Global: architecture & system design
-│       ├── style-agent.md       # Global: visual consistency & UX
-│       └── code-review-agent.md # Global: code quality & best practices
+│       ├── coordinator.md       # With YAML frontmatter
+│       └── repo-<alias>.md      # Specialist per repo
 ├── .agents/
-│   ├── coordinator.md           # Orchestrator agent (plain markdown, Codex compatible)
-│   ├── repo-<alias>.md          # Specialist per repo
-│   ├── architecture-agent.md    # Global agents (plain markdown)
-│   ├── style-agent.md
-│   └── code-review-agent.md
+│   ├── coordinator.md           # Plain markdown (Codex/Gemini)
+│   ├── repo-<alias>.md
+│   └── skills/
+│       ├── coordinator/SKILL.md # Agent Skills standard
+│       └── repo-<alias>/SKILL.md
 ├── repos/
 │   ├── frontend -> /path/to/frontend
 │   └── backend -> /path/to/backend
@@ -89,36 +66,24 @@ my-workspace/
 
 ```
 Coordinator (opus)
-├── architecture-agent (sonnet) — transversal, read-only
-├── style-agent (sonnet) — transversal, read-only
-├── code-review-agent (sonnet) — transversal, read-only
-├── repo-frontend (sonnet) — can invoke global agents
-└── repo-backend (sonnet) — can invoke global agents
+├── repo-frontend (sonnet)
+├── repo-backend (sonnet)
+└── repo-shared (sonnet)
 ```
 
-### Multi-agent compatibility
+Custom agents (architecture, style, code-review) can be added via `agent-factory create --role custom`.
 
-- `.claude/agents/*.md` includes YAML frontmatter (`name`, `model`, `description`, `tools`) for Claude Code
-- `.agents/*.md` contains plain markdown only (compatible with Codex, Gemini, Cursor)
-- `.agents/skills/<name>/SKILL.md` follows the Agent Skills standard (`name`, `description`) for Warp, Codex, Cursor, Gemini CLI
-- `AGENTS.md` is used as project rules by Warp, Codex, Gemini CLI, Cursor and 20+ tools
+## Multi-agent compatibility
 
+- `.claude/agents/*.md` — YAML frontmatter for Claude Code
+- `.agents/*.md` — plain markdown for Codex, Gemini, Cursor
+- `.agents/skills/<name>/SKILL.md` — Agent Skills standard for Warp, Codex, Cursor, Gemini CLI
+- `AGENTS.md` — project rules for 20+ tools
 
-## Agent Skill
+## Prerequisites
 
-This project is also an [Agent Skill](https://agentskills.io). When installed, AI agents can invoke it automatically when you say things like "create a multi-repo workspace" or "add a repo to the workspace".
-
-The SKILL.md is intentionally minimal — all heavy lifting is done by the bundled scripts, consuming zero tokens.
-
-## Compatibility
-
-| Tool | Reads | Generated files |
-|------|-------|-----------------|
-| Claude Code | `~/.claude/skills/` | `.claude/settings.json`, `CLAUDE.md`, `.claude/agents/` (with frontmatter) |
-| Codex CLI | `~/.codex/skills/` | `AGENTS.md`, `.agents/` (plain markdown) |
-| Gemini CLI | `~/.gemini/skills/` | `AGENTS.md`, `.agents/` (plain markdown) |
-| Copilot | `.github/skills/` | `AGENTS.md` |
-| Cursor | `~/.cursor/skills/` | `AGENTS.md` |
+- Node.js 16+ (for npx)
+- bash (macOS/Linux/WSL)
 
 ## License
 

@@ -2,8 +2,8 @@
 name: multirepo-space
 description: |
   Scaffold and manage multi-repo workspaces for AI coding agents.
-  Delegates to the multirepo-space CLI (bundled). Use when user says
-  "create workspace", "setup multirepo", "multi-repo workspace",
+  Orchestrates workspace-setup.sh (infrastructure) and agent-factory CLI (agents).
+  Use when user says "create workspace", "setup multirepo", "multi-repo workspace",
   "add repo to workspace", "remove repo from workspace",
   "workspace status", "check workspace health", "init multi-repo",
   "orchestrate repos", "link repositories".
@@ -13,44 +13,154 @@ description: |
 
 # multirepo-space
 
+## Tools
+
+This SKILL orchestrates two tools:
+- `workspace-setup.sh` — bundled script for workspace infrastructure (dirs, symlinks, settings.json, AGENTS.md/CLAUDE.md)
+- `agent-factory` — npm CLI for creating AI agents (`npx @tacuchi/agent-factory`)
+
 ## Quick routing
 
-User intent → Command:
-- "Create/scaffold workspace" → `setup`
-- "Add a repo" → `add` (verify workspace exists with `status` first)
-- "Remove/detach repo" → `remove`
-- "Check/verify/health" → `status`
+User intent → Action:
+- "Create/scaffold workspace" → **Full setup flow**
+- "Add a repo" → **Add flow**
+- "Remove/detach repo" → **Remove flow**
+- "Check/verify/health" → **Status flow**
+- "Create an agent" → `agent-factory create` directly
 - Single repo project → DO NOT use this Skill
 - Monorepo (Nx/Turborepo) → DO NOT use this Skill
 
 ## Before running — decision guide
 
-Before executing, think about the workspace design:
-- Do these repos share API contracts or interfaces? → they benefit from cross-repo analysis
-- Will multiple workspaces coexist in the same git repo? → prefixed symlinks prevent collisions
-
 Ask the user before executing:
 1. Does the workspace directory already exist? If not, create it first (`mkdir`).
-2. Is this a NEW workspace or adding to an EXISTING one? → `setup` vs `add`.
+2. Is this a NEW workspace or adding to an EXISTING one? → full setup vs add.
 3. Are all repo paths absolute? They MUST be absolute — symlinks break with relative paths.
 4. First time? Always suggest `--dry-run` so user can preview changes.
-5. Does the user need custom model assignments? Default: coordinator=opus, specialist=sonnet.
 
-## Flags — when to use each
+## Full setup flow
 
-| Flag | Use when | Do NOT use when |
-|------|----------|-----------------|
-| `--dry-run` | First run, user not familiar with tool | Re-runs after preview was approved |
-| `--yes` | Automated pipelines, user already confirmed in chat | First time, destructive changes |
-| `--verbose` | Debugging, verifying stack detection | Normal execution |
-| `--model-coordinator=MODEL` | User wants a specific model for the coordinator | Using default (opus) |
-| `--model-specialist=MODEL` | User wants a specific model for specialists | Using default (sonnet) |
+Execute these steps in order:
 
-## If detect_stack returns "Generic"
+### Step 1: Detect stacks
+For each repo, run:
+```
+npx @tacuchi/agent-factory detect <repo_path> --json -q
+```
+Capture the JSON output. Extract `alias`, `primaryTech`, `stackCsv`, `verifyCommands`.
 
-The CLI creates the specialist agent without verify commands. Ask the user:
-"Stack was not auto-detected for [repo]. What is the main language/framework?"
-Then manually add verify commands to the generated specialist agent file.
+### Step 2: Create workspace infrastructure
+```
+bash "$SKILL_DIR/scripts/workspace-setup.sh" setup <workspace_path> <repo1> <repo2> ... \
+  --stacks "stackCsv1|stackCsv2|..." -y
+```
+This creates: dirs (repos/, docs/, scripts/), symlinks, .claude/settings.json, AGENTS.md, CLAUDE.md, config.
+
+### Step 3: Create specialist agents
+For each repo:
+```
+npx @tacuchi/agent-factory create \
+  --name repo-<alias> \
+  --role specialist \
+  --scope <repo_path> \
+  --output <workspace_path> \
+  --target all -y -q
+```
+
+### Step 4: Create coordinator agent
+```
+npx @tacuchi/agent-factory create \
+  --name coordinator \
+  --role coordinator \
+  --model opus \
+  --specialists "repo-<alias1>,repo-<alias2>,..." \
+  --repo-count <N> \
+  --output <workspace_path> \
+  --target all -y -q
+```
+
+## Add repo flow
+
+### Step 1: Detect stack
+```
+npx @tacuchi/agent-factory detect <repo_path> --json -q
+```
+
+### Step 2: Add to workspace
+```
+bash "$SKILL_DIR/scripts/workspace-setup.sh" add <workspace_path> <repo_path> \
+  --alias <alias> --stack-csv "<stackCsv>" -y
+```
+
+### Step 3: Create specialist
+```
+npx @tacuchi/agent-factory create \
+  --name repo-<alias> \
+  --role specialist \
+  --scope <repo_path> \
+  --output <workspace_path> \
+  --target all -y -q
+```
+
+### Step 4: Regenerate coordinator
+Get the updated list of specialists from existing symlinks, then:
+```
+npx @tacuchi/agent-factory create \
+  --name coordinator \
+  --role coordinator \
+  --model opus \
+  --specialists "<updated_csv_list>" \
+  --repo-count <updated_N> \
+  --output <workspace_path> \
+  --target all -y -q
+```
+
+## Remove repo flow
+
+### Step 1: Remove infrastructure + agent files
+```
+bash "$SKILL_DIR/scripts/workspace-setup.sh" remove <workspace_path> <alias> -y
+```
+This removes: symlink, agent files from 3 dirs (.agents/, .claude/agents/, .agents/skills/), and regenerates docs.
+
+### Step 2: Regenerate coordinator
+Get the updated list of specialists from remaining symlinks, then:
+```
+npx @tacuchi/agent-factory create \
+  --name coordinator \
+  --role coordinator \
+  --model opus \
+  --specialists "<updated_csv_list>" \
+  --repo-count <updated_N> \
+  --output <workspace_path> \
+  --target all -y -q
+```
+
+## Status flow
+
+```
+bash "$SKILL_DIR/scripts/workspace-setup.sh" status <workspace_path>
+npx @tacuchi/agent-factory list <workspace_path>
+```
+
+## Custom agent flow
+
+To create additional agents (architecture, style, code-review, etc.):
+```
+npx @tacuchi/agent-factory create \
+  --name <agent-name> \
+  --role custom \
+  --description "<short description>" \
+  --instructions "<body text or path to .md file>" \
+  --model sonnet \
+  --output <workspace_path> \
+  --target all -y -q
+```
+
+## If detect returns "Generic"
+
+Ask the user: "Stack was not auto-detected for [repo]. What is the main language/framework?"
+Then pass `--stack-csv` to the setup/add command so it persists in config.
 
 ## When NOT to use this
 
@@ -59,68 +169,44 @@ Then manually add verify commands to the generated specialist agent file.
 
 ## NEVER
 
-- Run `setup` on a populated workspace without confirming with the user first.
-- Use relative paths for repos — symlinks will break when working directory changes.
-- Skip `--dry-run` for first-time users — always suggest preview first.
-- Assume symlinks always work on Windows — the PowerShell port falls back to junctions when symlinks need elevation, but junctions only support local directories (not network paths).
+- Run setup on a populated workspace without confirming with the user first.
+- Use relative paths for repos — symlinks will break.
+- Skip `--dry-run` for first-time users.
 - Assume workspace exists — verify with `status` before running `add` or `remove`.
-- Run `add` with a repo whose basename matches an existing alias — the previous specialist gets overwritten without warning.
-- Modify `settings.json` manually — the CLI expects a specific format and manual edits can break parsing in `add`/`remove`.
+- Modify `settings.json` manually — the script expects a specific format.
 
-## Detect OS and run
+## Prerequisites
 
-- macOS/Linux/WSL: `bash "$SKILL_DIR/scripts/multirepo-space" <subcommand> [args]`
-- Windows PowerShell: `powershell "$SKILL_DIR/scripts/multirepo-space.ps1" <subcommand> [args]`
+- Node.js 16+ (for npx)
+- `@tacuchi/agent-factory` (installed globally or via npx)
+- bash (macOS/Linux/WSL)
 
 Replace `$SKILL_DIR` with the absolute path to this skill's directory.
 
-Templates are in `$SKILL_DIR/templates/` — read them to understand what files get generated (e.g., `workspace-instructions.md.tmpl`, `coordinator.md.tmpl`, `specialist.md.tmpl`).
-
 ## Script behavior summary
 
-The scripts (`scripts/multirepo-space` for bash, `scripts/multirepo-space.ps1` for PowerShell) are fully offline — they make NO network requests and do NOT modify system files.
-
-What each subcommand does:
-- `setup`: reads repo manifest files (package.json, pom.xml, etc.) to detect tech stacks, then generates `.md` agent files, `.claude/settings.json`, and symlinks inside the workspace directory. Saves configuration to `.claude/.multirepo-space.conf`.
-- `add`: same as setup but for a single repo added to an existing workspace. Loads config from `.multirepo-space.conf` to preserve original model settings.
-- `remove`: deletes the specialist agent file and symlink for a repo.
-- `status`: read-only — checks symlink health, agent file parity, and config persistence. Writes nothing.
-
-All extracted values from repo files are sanitized (length-limited, control characters and injection patterns stripped) before being inserted into templates.
-
-Scope of filesystem writes is limited to:
-1. The workspace directory (files it creates)
+`workspace-setup.sh` is fully offline — makes NO network requests, does NOT modify system files.
+Scope of writes is limited to the workspace directory.
 
 ## Agent hierarchy
 
 ```
 Coordinator (opus)
 ├── repo-frontend (sonnet)
-└── repo-backend (sonnet)
+├── repo-backend (sonnet)
+└── repo-shared (sonnet)
 ```
 
-- If the user has created global agents (e.g., architecture, style, code-review), both the coordinator and specialists can invoke them for analysis. These agents are user-managed, read-only, and may not be present in all workspaces.
-- Note: the coordinator acts as a contextual guide — it orients the user on which specialist to invoke but does not automatically delegate tasks. Each specialist is invoked directly by the user.
+The coordinator acts as a contextual guide — it orients the user on which specialist to invoke but does not automatically delegate tasks. Each specialist is invoked directly by the user.
 
 ## Multi-agent compatibility
 
-- `.claude/agents/*.md` → includes YAML frontmatter (name, model, description, tools) for Claude Code
-- `.agents/*.md` → plain markdown only, no frontmatter (Codex/Gemini/Cursor compatible)
-- `.agents/skills/<name>/SKILL.md` → Agent Skills standard with frontmatter (name, description) for Warp, Codex, Cursor, Gemini CLI
-- Both `.agents/` and `.claude/agents/` contain identical agent logic, only the frontmatter differs
+- `.claude/agents/*.md` → YAML frontmatter (name, model, description, tools) for Claude Code
+- `.agents/*.md` → plain markdown (Codex/Gemini/Cursor compatible)
+- `.agents/skills/<name>/SKILL.md` → Agent Skills standard (Warp/Codex/Cursor/Gemini CLI)
 - `AGENTS.md` is used as project rules by Warp, Codex, Gemini CLI, Cursor and 20+ tools
 
 ## After running
 
-- Run `status <workspace_path>` to verify all symlinks are healthy and agents are in parity.
-- Check that AGENTS.md and CLAUDE.md exist in both the workspace and each external repo.
-- If `setup` failed mid-way, it's safe to re-run — existing files get overwritten.
+- Run `status` to verify symlinks and agent parity.
 - To start working: `cd <workspace_path> && claude` or `cd <workspace_path> && codex`.
-- Check that AGENTS.md and CLAUDE.md exist in both the workspace and each external repo.
-## Common issues
-
-- **"Workspace path does not exist"**: create directory first, then run `setup`.
-- **Broken symlinks after moving repos**: re-run `setup` with updated absolute paths.
-- **"Permission denied" on Windows**: run PowerShell as Administrator for symlink creation.
-- **Stack not detected**: the CLI falls back to "Generic" — specialist agent still gets created, just without stack-specific verify commands.
-- **Partial setup failure** (files created but symlinks missing): re-run `setup` with same args — the script overwrites existing files safely and recreates all symlinks.
