@@ -115,12 +115,11 @@ regenerate_docs() {
   local N=${#aliases[@]}
   local repos_word="repositorios"; [[ $N -eq 1 ]] && repos_word="repositorio"
 
-  local repos_table="" symlinks_table="" agents_table=""
-  agents_table="| \`coordinator\` | Orquesta trabajo multi-repo, delega a especialistas | Workspace completo |"$'\n'
+  local repos_table="" agents_table=""
+  agents_table="| \`coordinator-agent\` | Orquesta trabajo multi-repo, delega a especialistas | Workspace completo |"$'\n'
   for i in "${!aliases[@]}"; do
-    repos_table+="| **Repo $((i+1))** (${aliases[$i]}) | $(basename "${paths[$i]}") | \`${paths[$i]}\` | ${csvs[$i]} |"$'\n'
-    symlinks_table+="| ${aliases[$i]} | \`${paths[$i]}\` |"$'\n'
-    agents_table+="| \`repo-${aliases[$i]}\` | Especialista ${csvs[$i]%%,*} | Repo $((i+1)) |"$'\n'
+    repos_table+="| ${aliases[$i]} | ${csvs[$i]} | \`${paths[$i]}\` |"$'\n'
+    agents_table+="| \`repo-${aliases[$i]}-agent\` | Especialista ${csvs[$i]%%,*} | Repo $((i+1)) |"$'\n'
   done
 
   local additional_dirs=""
@@ -130,7 +129,7 @@ regenerate_docs() {
   done
 
   local instructions; instructions=$(template "$TMPL_DIR/workspace-instructions.md.tmpl")
-  for var in N repos_word repos_table symlinks_table agents_table today; do
+  for var in N repos_word repos_table agents_table today; do
     instructions="${instructions//\{\{$var\}\}/${!var}}"
   done
   write_file "$ws/AGENTS.md" "$instructions"
@@ -225,13 +224,13 @@ cmd_remove() {
   confirm "Remove '$alias'?" || { info "Aborted."; exit 0; }
 
   for dir in ".agents" ".claude/agents"; do
-    local f="$ws/$dir/repo-${alias}.md"
+    local f="$ws/$dir/repo-${alias}-agent.md"
     if [[ -f "$f" ]]; then
       if $OPT_DRY_RUN; then info "[dry-run] Would remove: $f"
       else rm "$f"; verbose "Removed: $f"; fi
     fi
   done
-  local skill_dir="$ws/.agents/skills/repo-${alias}"
+  local skill_dir="$ws/.agents/skills/repo-${alias}-agent"
   if [[ -d "$skill_dir" ]]; then
     if $OPT_DRY_RUN; then info "[dry-run] Would remove: $skill_dir"
     else rm -rf "$skill_dir"; verbose "Removed: $skill_dir"; fi
@@ -281,9 +280,9 @@ cmd_status() {
 
   echo ""
   local agents_n=0 claude_n=0 skills_n=0
-  [[ -d "$ws/.agents" ]] && agents_n=$(find "$ws/.agents" -maxdepth 1 -name "repo-*.md" | wc -l | xargs)
-  [[ -d "$ws/.claude/agents" ]] && claude_n=$(find "$ws/.claude/agents" -maxdepth 1 -name "repo-*.md" | wc -l | xargs)
-  [[ -d "$ws/.agents/skills" ]] && skills_n=$(find "$ws/.agents/skills" -maxdepth 1 -type d -name "repo-*" | wc -l | xargs)
+  [[ -d "$ws/.agents" ]] && agents_n=$(find "$ws/.agents" -maxdepth 1 -name "*-agent.md" | wc -l | xargs)
+  [[ -d "$ws/.claude/agents" ]] && claude_n=$(find "$ws/.claude/agents" -maxdepth 1 -name "*-agent.md" | wc -l | xargs)
+  [[ -d "$ws/.agents/skills" ]] && skills_n=$(find "$ws/.agents/skills" -maxdepth 1 -type d -name "*-agent" | wc -l | xargs)
   local parity="OK"
   [[ "$agents_n" != "$claude_n" || "$agents_n" != "$skills_n" ]] && parity="MISMATCH" || true
 

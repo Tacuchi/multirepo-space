@@ -49,6 +49,8 @@ npx @tacuchi/agent-factory detect <repo_path> --json -q
 ```
 Capture the JSON output. Extract `alias`, `primaryTech`, `stackCsv`, `verifyCommands`.
 
+**Important**: Use the `stackCsv` field exactly as returned by detect — do NOT simplify or summarize it. Pass the full value to `--stacks`.
+
 ### Step 2: Create workspace infrastructure
 ```
 bash "$SKILL_DIR/scripts/workspace-setup.sh" setup <workspace_path> <repo1> <repo2> ... \
@@ -66,6 +68,7 @@ npx @tacuchi/agent-factory create \
   --output <workspace_path> \
   --target all -y -q
 ```
+agent-factory auto-appends `-agent` suffix: `repo-<alias>` becomes `repo-<alias>-agent.md`.
 
 ### Step 4: Create coordinator agent
 ```
@@ -73,11 +76,12 @@ npx @tacuchi/agent-factory create \
   --name coordinator \
   --role coordinator \
   --model opus \
-  --specialists "repo-<alias1>,repo-<alias2>,..." \
+  --specialists "repo-<alias1>-agent,repo-<alias2>-agent,..." \
   --repo-count <N> \
   --output <workspace_path> \
   --target all -y -q
 ```
+The `--specialists` list must use the full names with `-agent` suffix.
 
 ## Add repo flow
 
@@ -103,13 +107,13 @@ npx @tacuchi/agent-factory create \
 ```
 
 ### Step 4: Regenerate coordinator
-Get the updated list of specialists from existing symlinks, then:
+Get the updated list of specialists (with `-agent` suffix) from existing symlinks, then:
 ```
 npx @tacuchi/agent-factory create \
   --name coordinator \
   --role coordinator \
   --model opus \
-  --specialists "<updated_csv_list>" \
+  --specialists "<updated_csv_list_with_agent_suffix>" \
   --repo-count <updated_N> \
   --output <workspace_path> \
   --target all -y -q
@@ -191,10 +195,10 @@ Scope of writes is limited to the workspace directory.
 ## Agent hierarchy
 
 ```
-Coordinator (opus)
-├── repo-frontend (sonnet)
-├── repo-backend (sonnet)
-└── repo-shared (sonnet)
+coordinator-agent (opus)
+├── repo-frontend-agent (sonnet)
+├── repo-backend-agent (sonnet)
+└── repo-shared-agent (sonnet)
 ```
 
 The coordinator acts as a contextual guide — it orients the user on which specialist to invoke but does not automatically delegate tasks. Each specialist is invoked directly by the user.
