@@ -8,7 +8,7 @@ description: |
   "workspace status", "check workspace health", "init multi-repo",
   "orchestrate repos", "link repositories".
   Also use when user has multiple repos and needs a central
-  coordination point for AI agents (Claude Code, Codex, Gemini CLI).
+  coordination point for AI agents (Claude Code, Codex, Gemini CLI, OpenCode, Crush, Warp Oz).
 ---
 
 # multirepo-space
@@ -16,25 +16,35 @@ description: |
 ## Tools
 
 This SKILL orchestrates two tools:
-- `workspace-setup.sh` — bundled script for workspace infrastructure (dirs, symlinks, settings.json, AGENTS.md/CLAUDE.md)
-- `agent-factory` — npm CLI for creating AI agents (`npx @tacuchi/agent-factory`)
+- `workspace-setup.sh` - bundled script for workspace infrastructure (dirs, symlinks, settings.json, AGENTS.md/CLAUDE.md)
+- `agent-factory` - npm CLI for creating AI agents (`npx @tacuchi/agent-factory`)
+
+## Target priority
+
+Implementation and generation priority:
+
+1. `P0` Claude Code + Codex
+2. `P1` Gemini + OpenCode (legacy) + Crush
+3. `P2` Warp Oz (via skills portability)
+
+Always prefer `--target all` unless user explicitly asks for a single target.
 
 ## Quick routing
 
-User intent → Action:
-- "Create/scaffold workspace" → **Full setup flow**
-- "Add a repo" → **Add flow**
-- "Remove/detach repo" → **Remove flow**
-- "Check/verify/health" → **Status flow**
-- "Create an agent" → `agent-factory create` directly
-- Single repo project → DO NOT use this Skill
-- Monorepo (Nx/Turborepo) → DO NOT use this Skill
+User intent -> Action:
+- "Create/scaffold workspace" -> **Full setup flow**
+- "Add a repo" -> **Add flow**
+- "Remove/detach repo" -> **Remove flow**
+- "Check/verify/health" -> **Status flow**
+- "Create an agent" -> `agent-factory create` directly
+- Single repo project -> DO NOT use this Skill
+- Monorepo (Nx/Turborepo) -> DO NOT use this Skill
 
 ## Pre-flight checklist
 
 - Workspace dir exists? If not, `mkdir` first.
-- New workspace or existing? → `setup` vs `add`.
-- All repo paths absolute? Required — symlinks break with relative paths.
+- New workspace or existing? -> `setup` vs `add`.
+- All repo paths absolute? Required - symlinks break with relative paths.
 - Always run with `--dry-run` first and show the user the output before executing.
 
 ## Security
@@ -57,7 +67,7 @@ Never pass `-y` to `workspace-setup.sh` without prior user approval in the curre
 npx @tacuchi/agent-factory detect <repo_path> --json -q
 ```
 Capture JSON. Extract `alias`, `primaryTech`, `stackCsv`, `verifyCommands`.
-Use `stackCsv` exactly as returned — pass full value to `--stacks`.
+Use `stackCsv` exactly as returned - pass full value to `--stacks`.
 
 ### Step 2: Preview workspace infrastructure (dry-run)
 ```
@@ -79,7 +89,7 @@ npx @tacuchi/agent-factory create \
   --name repo-<alias> --role specialist --scope <repo_path> \
   --output <workspace_path> --target all -q
 ```
-Auto-appends `-agent` suffix: `repo-<alias>` → `repo-<alias>-agent.md`.
+Auto-appends `-agent` suffix: `repo-<alias>` -> `repo-<alias>-agent.md`.
 
 ### Step 4: Create coordinator agent
 Confirm with the user before running.
@@ -139,7 +149,7 @@ Show output to user. Ask: "Proceed with these changes?" On approval:
 ```
 bash "$SKILL_DIR/scripts/workspace-setup.sh" remove <workspace_path> <alias> -y
 ```
-Removes: symlink, agent files (.agents/, .claude/agents/, .agents/skills/), regenerates docs.
+Removes: symlink, agent files (`.agents/`, `.claude/agents/`, `.gemini/agents/`, `.agents/skills/`), regenerates docs.
 
 ### Step 2: Regenerate coordinator
 Get updated specialist list from remaining symlinks.
@@ -183,17 +193,20 @@ Then pass `--stack-csv` to the setup/add command so it persists in config.
 - Always run `--dry-run` and show output to user before any write command.
 - Always confirm with the user before invoking `agent-factory create`.
 - Never pass `-y` without explicit user approval in the current session.
-- Always use absolute paths — symlinks break with relative.
+- Always use absolute paths - symlinks break with relative.
 - Do not modify `settings.json` manually.
-- Single repo or monorepo (Nx/Turborepo) → do NOT use this skill.
+- Single repo or monorepo (Nx/Turborepo) -> do NOT use this skill.
 
 Replace `$SKILL_DIR` with the absolute path to this skill's directory.
 
 ## Agent hierarchy
 
-`coordinator-agent (opus)` → `repo-*-agent (sonnet)` per repo.
+`coordinator-agent (opus)` -> `repo-*-agent (sonnet)` per repo.
 Coordinator delegates to specialists via `Task`. Specialists execute autonomously.
 
 ## Compatibility
 
-`.claude/agents/*.md` (Claude Code) | `.agents/*.md` (Codex/Gemini/Cursor) | `.agents/skills/*/SKILL.md` (Warp/Codex/Cursor/Gemini CLI) | `AGENTS.md` (20+ tools)
+- P0: `.claude/agents/*.md` + `.agents/*.md` + `.agents/skills/*/SKILL.md`
+- P1: `.gemini/agents/*.md` + `.opencode.json` + `.crush.json`
+- P2: `docs/warp-oz/environment-example.md` + `.agents/skills/*/SKILL.md`
+- Universal context: `AGENTS.md` (20+ tools)

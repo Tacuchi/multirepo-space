@@ -1,21 +1,25 @@
 # multirepo-space
 
-Multi-repo workspace manager for AI coding agents — an [Agent Skill](https://agentskills.io) that orchestrates [`@tacuchi/agent-factory`](https://www.npmjs.com/package/@tacuchi/agent-factory) and a bundled workspace setup script.
+Multi-repo workspace manager for AI coding agents - an [Agent Skill](https://agentskills.io) that orchestrates [`@tacuchi/agent-factory`](https://www.npmjs.com/package/@tacuchi/agent-factory) and a bundled workspace setup script.
 
-Compatible with **Claude Code**, **Codex CLI**, **Gemini CLI**, **Copilot**, **Cursor**, and any tool supporting the Agent Skills standard.
+Compatibility priority:
+
+1. `P0` Claude Code + Codex
+2. `P1` Gemini + OpenCode (legacy) + Crush
+3. `P2` Warp Oz via Agent Skills portability
 
 ## Architecture
 
 This SKILL orchestrates two tools:
 
-- **`@tacuchi/agent-factory`** — npm CLI that detects tech stacks and creates AI agents in 3 formats
-- **`workspace-setup.sh`** — bundled bash script for workspace infrastructure (dirs, symlinks, settings.json, docs)
+- **`@tacuchi/agent-factory`** - npm CLI that detects tech stacks and creates AI agents in multi-target output profiles
+- **`workspace-setup.sh`** - bundled bash script for workspace infrastructure (dirs, symlinks, settings.json, docs)
 
-```
+```text
 multirepo-space (SKILL)
-├── SKILL.md              # Teaches the AI agent when/how to use both tools
+├── SKILL.md
 ├── scripts/
-│   └── workspace-setup.sh  # Infrastructure: dirs, symlinks, settings.json, AGENTS.md
+│   └── workspace-setup.sh
 ├── templates/
 │   ├── workspace-instructions.md.tmpl
 │   └── settings.json.tmpl
@@ -33,52 +37,72 @@ npx skills add <owner>/multirepo-space -g
 
 When you tell your AI agent "create a multi-repo workspace", the SKILL orchestrates:
 
-1. **Detect stacks** — `agent-factory detect <path> --json -q` for each repo
-2. **Create infrastructure** — `workspace-setup.sh setup` creates dirs, symlinks, settings.json, AGENTS.md/CLAUDE.md
-3. **Create agents** — `agent-factory create` generates specialist + coordinator agents in 3 formats
+1. **Detect stacks** - `agent-factory detect <path> --json -q` for each repo
+2. **Create infrastructure** - `workspace-setup.sh setup` creates dirs, symlinks, settings.json, AGENTS.md/CLAUDE.md
+3. **Create agents** - `agent-factory create --target all` generates specialist + coordinator agents and multi-CLI artifacts
 
-### Generated workspace
+### Generated workspace (target: `all`)
 
-```
+```text
 my-workspace/
-├── AGENTS.md                    # Universal instructions
-├── CLAUDE.md                    # Claude Code instructions
+├── AGENTS.md
+├── CLAUDE.md
 ├── .claude/
-│   ├── settings.json            # additionalDirectories
-│   ├── .multirepo-space.conf    # Persisted config (stacks, paths)
+│   ├── settings.json
+│   ├── .multirepo-space.conf
 │   └── agents/
-│       ├── coordinator.md       # With YAML frontmatter
-│       └── repo-<alias>.md      # Specialist per repo
+│       ├── coordinator-agent.md
+│       └── repo-<alias>-agent.md
 ├── .agents/
-│   ├── coordinator.md           # Plain markdown (Codex/Gemini)
-│   ├── repo-<alias>.md
+│   ├── coordinator-agent.md
+│   ├── repo-<alias>-agent.md
 │   └── skills/
-│       ├── coordinator/SKILL.md # Agent Skills standard
-│       └── repo-<alias>/SKILL.md
+│       ├── coordinator-agent/SKILL.md
+│       └── repo-<alias>-agent/SKILL.md
+├── .gemini/
+│   └── agents/
+│       ├── coordinator-agent.md
+│       └── repo-<alias>-agent.md
+├── .opencode.json
+├── .crush.json
+├── docs/
+│   └── warp-oz/
+│       └── environment-example.md
 ├── repos/
 │   ├── frontend -> /path/to/frontend
 │   └── backend -> /path/to/backend
-├── docs/
 └── scripts/
 ```
 
 ### Agent hierarchy
 
-```
+```text
 Coordinator (opus)
-├── repo-frontend (sonnet)
-├── repo-backend (sonnet)
-└── repo-shared (sonnet)
+├── repo-frontend-agent (sonnet)
+├── repo-backend-agent (sonnet)
+└── repo-shared-agent (sonnet)
 ```
 
-Custom agents (architecture, style, code-review) can be added via `agent-factory create --role custom`.
+Custom agents (architecture, style, code-review) can be added via `agent-factory create --role custom --target all`.
 
 ## Multi-agent compatibility
 
-- `.claude/agents/*.md` — YAML frontmatter for Claude Code
-- `.agents/*.md` — plain markdown for Codex, Gemini, Cursor
-- `.agents/skills/<name>/SKILL.md` — Agent Skills standard for Warp, Codex, Cursor, Gemini CLI
-- `AGENTS.md` — project rules for 20+ tools
+- `.claude/agents/*.md` - Claude Code
+- `.agents/*.md` - Codex and universal markdown agents
+- `.agents/skills/<name>/SKILL.md` - Warp, Codex, Cursor, Gemini (skills portability)
+- `.gemini/agents/*.md` - Gemini local agent definitions
+- `.opencode.json` - OpenCode legacy bridge config
+- `.crush.json` - Crush config bridge
+- `docs/warp-oz/environment-example.md` - Warp Oz reference scaffold
+- `AGENTS.md` - shared project rules for 20+ tools
+
+## Local smoke check
+
+To validate end-to-end generation:
+
+```bash
+bash scripts/smoke-multi-cli.sh
+```
 
 ## Prerequisites
 

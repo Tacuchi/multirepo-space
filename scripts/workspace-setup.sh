@@ -222,7 +222,7 @@ cmd_remove() {
 
   confirm "Remove '$alias'?" || { info "Aborted."; exit 0; }
 
-  for dir in ".agents" ".claude/agents"; do
+  for dir in ".agents" ".claude/agents" ".gemini/agents"; do
     local f="$ws/$dir/repo-${alias}-agent.md"
     if [[ -f "$f" ]]; then
       if $OPT_DRY_RUN; then info "[dry-run] Would remove: $f"
@@ -278,15 +278,25 @@ cmd_status() {
   fi
 
   echo ""
-  local agents_n=0 claude_n=0 skills_n=0
+  local agents_n=0 claude_n=0 gemini_n=0 skills_n=0
+  local crush_cfg="MISSING" opencode_cfg="MISSING" warp_doc="MISSING"
   [[ -d "$ws/.agents" ]] && agents_n=$(find "$ws/.agents" -maxdepth 1 -name "*-agent.md" | wc -l | xargs)
   [[ -d "$ws/.claude/agents" ]] && claude_n=$(find "$ws/.claude/agents" -maxdepth 1 -name "*-agent.md" | wc -l | xargs)
+  [[ -d "$ws/.gemini/agents" ]] && gemini_n=$(find "$ws/.gemini/agents" -maxdepth 1 -name "*-agent.md" | wc -l | xargs)
   [[ -d "$ws/.agents/skills" ]] && skills_n=$(find "$ws/.agents/skills" -maxdepth 1 -type d -name "*-agent" | wc -l | xargs)
-  local parity="OK"
-  [[ "$agents_n" != "$claude_n" || "$agents_n" != "$skills_n" ]] && parity="MISMATCH" || true
+  [[ -f "$ws/.crush.json" ]] && crush_cfg="EXISTS"
+  [[ -f "$ws/.opencode.json" ]] && opencode_cfg="EXISTS"
+  [[ -f "$ws/docs/warp-oz/environment-example.md" ]] && warp_doc="EXISTS"
+  local parity_core="OK" parity_gemini="N/A"
+  [[ "$agents_n" != "$claude_n" || "$agents_n" != "$skills_n" ]] && parity_core="MISMATCH" || true
+  if [[ "$gemini_n" -gt 0 ]]; then
+    [[ "$gemini_n" != "$agents_n" ]] && parity_gemini="MISMATCH" || parity_gemini="OK"
+  fi
 
   info "Repos: $total (healthy: $healthy, broken: $broken)"
-  info "Agents: .agents/=$agents_n, .claude/agents/=$claude_n, skills/=$skills_n ($parity)"
+  info "Agents: .agents/=$agents_n, .claude/agents/=$claude_n, .gemini/agents/=$gemini_n, skills/=$skills_n"
+  info "Parity: core=$parity_core, gemini=$parity_gemini"
+  info "Configs: .opencode.json=$opencode_cfg, .crush.json=$crush_cfg, warp-oz-doc=$warp_doc"
   info "AGENTS.md $([ -f "$ws/AGENTS.md" ] && echo "EXISTS" || echo "MISSING")"
   info "CLAUDE.md $([ -f "$ws/CLAUDE.md" ] && echo "EXISTS" || echo "MISSING")"
   info "settings.json $([ -f "$ws/.claude/settings.json" ] && echo "EXISTS" || echo "MISSING")"
