@@ -8,11 +8,7 @@ description: |
   "workspace status", "check workspace health", "init multi-repo",
   "orchestrate repos", "link repositories".
   Also use when user has multiple repos and needs a central
-  coordination point for AI agents (Claude Code, Codex, Gemini CLI, Crush, Warp).
-metadata:
-  scope: [root]
-  auto_invoke: "Creating multi-repo workspaces, orchestrating AI agents across repos"
-  version: "2.0"
+  coordination point for AI agents (Claude Code, Codex, Gemini CLI, OpenCode, Crush, Warp Oz).
 ---
 
 # multirepo-space
@@ -20,25 +16,37 @@ metadata:
 ## Tools
 
 This SKILL orchestrates two tools:
-- `workspace-setup.sh` — bundled script for workspace infrastructure (dirs, symlinks, settings.json, AGENTS.md/CLAUDE.md)
-- `agent-factory` — npm CLI for creating AI agents (`npx @tacuchi/agent-factory`)
+- `workspace-setup.sh` - bundled script for workspace infrastructure (dirs, symlinks, settings.json, AGENTS.md/CLAUDE.md)
+- `agent-factory` - npm CLI for creating AI agents (`npx @tacuchi/agent-factory`)
+
+## Target determination
+
+Determine the target based on the CLI executing this skill:
+- Running in Claude Code → `--target claude`
+- Running in Codex → `--target codex`
+- Running in Gemini CLI → `--target gemini`
+- Running in Crush → `--target crush`
+- Running in Warp → `--target warp`
+
+Use `<target>` placeholder below. Replace with the correct value for the current CLI.
+**One target at a time.** Never use `--target all`.
 
 ## Quick routing
 
-User intent → Action:
-- "Create/scaffold workspace" → **Full setup flow**
-- "Add a repo" → **Add flow**
-- "Remove/detach repo" → **Remove flow**
-- "Check/verify/health" → **Status flow**
-- "Create an agent" → `agent-factory create` directly
-- Single repo project → DO NOT use this Skill
-- Monorepo (Nx/Turborepo) → DO NOT use this Skill
+User intent -> Action:
+- "Create/scaffold workspace" -> **Full setup flow**
+- "Add a repo" -> **Add flow**
+- "Remove/detach repo" -> **Remove flow**
+- "Check/verify/health" -> **Status flow**
+- "Create an agent" -> `agent-factory create` directly
+- Single repo project -> DO NOT use this Skill
+- Monorepo (Nx/Turborepo) -> DO NOT use this Skill
 
 ## Pre-flight checklist
 
 - Workspace dir exists? If not, `mkdir` first.
-- New workspace or existing? → `setup` vs `add`.
-- All repo paths absolute? Required — symlinks break with relative paths.
+- New workspace or existing? -> `setup` vs `add`.
+- All repo paths absolute? Required - symlinks break with relative paths.
 - Always run with `--dry-run` first and show the user the output before executing.
 
 ## Security
@@ -61,29 +69,29 @@ Never pass `-y` to `workspace-setup.sh` without prior user approval in the curre
 npx @tacuchi/agent-factory detect <repo_path> --json -q
 ```
 Capture JSON. Extract `alias`, `primaryTech`, `stackCsv`, `verifyCommands`.
-Use `stackCsv` exactly as returned — pass full value to `--stacks`.
+Use `stackCsv` exactly as returned - pass full value to `--stacks`.
 
 ### Step 2: Preview workspace infrastructure (dry-run)
 ```
 bash "$SKILL_DIR/scripts/workspace-setup.sh" setup <workspace_path> <repo1> <repo2> ... \
-  --stacks "stackCsv1|stackCsv2|..." --dry-run
+  --stacks "stackCsv1|stackCsv2|..." --target <target> --dry-run
 ```
 
 Show output to user. Ask: "Proceed with these changes?" On approval:
 ```
 bash "$SKILL_DIR/scripts/workspace-setup.sh" setup <workspace_path> <repo1> <repo2> ... \
-  --stacks "stackCsv1|stackCsv2|..." -y
+  --stacks "stackCsv1|stackCsv2|..." --target <target> -y
 ```
-Creates: dirs, symlinks, settings.json, AGENTS.md, CLAUDE.md, config.
+Creates: dirs, symlinks, AGENTS.md (universal), target-specific context file and settings.
 
 ### Step 3: Create specialist agents
 Confirm with the user before running. Per repo:
 ```
 npx @tacuchi/agent-factory create \
   --name repo-<alias> --role specialist --scope <repo_path> \
-  --output <workspace_path> --target all -q
+  --output <workspace_path> --target <target> -q
 ```
-Auto-appends `-agent` suffix: `repo-<alias>` → `repo-<alias>-agent.md`.
+Auto-appends `-agent` suffix: `repo-<alias>` -> `repo-<alias>-agent.md`.
 
 ### Step 4: Create coordinator agent
 Confirm with the user before running.
@@ -91,7 +99,7 @@ Confirm with the user before running.
 npx @tacuchi/agent-factory create \
   --name coordinator --role coordinator --model opus \
   --specialists "repo-<alias1>-agent,repo-<alias2>-agent,..." \
-  --repo-count <N> --output <workspace_path> --target all -q
+  --repo-count <N> --output <workspace_path> --target <target> -q
 ```
 `--specialists` list must use full names with `-agent` suffix.
 
@@ -105,13 +113,13 @@ npx @tacuchi/agent-factory detect <repo_path> --json -q
 ### Step 2: Preview add (dry-run)
 ```
 bash "$SKILL_DIR/scripts/workspace-setup.sh" add <workspace_path> <repo_path> \
-  --alias <alias> --stack-csv "<stackCsv>" --dry-run
+  --alias <alias> --stack-csv "<stackCsv>" --target <target> --dry-run
 ```
 
 Show output to user. Ask: "Proceed with these changes?" On approval:
 ```
 bash "$SKILL_DIR/scripts/workspace-setup.sh" add <workspace_path> <repo_path> \
-  --alias <alias> --stack-csv "<stackCsv>" -y
+  --alias <alias> --stack-csv "<stackCsv>" --target <target> -y
 ```
 
 ### Step 3: Create specialist
@@ -119,7 +127,7 @@ Confirm with the user before running.
 ```
 npx @tacuchi/agent-factory create \
   --name repo-<alias> --role specialist --scope <repo_path> \
-  --output <workspace_path> --target claude -q
+  --output <workspace_path> --target all -q
 ```
 
 ### Step 4: Regenerate coordinator
@@ -136,14 +144,14 @@ npx @tacuchi/agent-factory create \
 
 ### Step 1: Preview removal (dry-run)
 ```
-bash "$SKILL_DIR/scripts/workspace-setup.sh" remove <workspace_path> <alias> --dry-run
+bash "$SKILL_DIR/scripts/workspace-setup.sh" remove <workspace_path> <alias> --target <target> --dry-run
 ```
 
 Show output to user. Ask: "Proceed with these changes?" On approval:
 ```
-bash "$SKILL_DIR/scripts/workspace-setup.sh" remove <workspace_path> <alias> -y
+bash "$SKILL_DIR/scripts/workspace-setup.sh" remove <workspace_path> <alias> --target <target> -y
 ```
-Removes: symlink, agent files (.agents/, .claude/agents/, .agents/skills/), regenerates docs.
+Removes: symlink, agent files (`.agents/`, `.claude/agents/`, `.gemini/agents/`, `.agents/skills/`), regenerates docs.
 
 ### Step 2: Regenerate coordinator
 Get updated specialist list from remaining symlinks.
@@ -152,13 +160,13 @@ Confirm with the user before running.
 npx @tacuchi/agent-factory create \
   --name coordinator --role coordinator --model opus \
   --specialists "<updated_csv_list>" --repo-count <updated_N> \
-  --output <workspace_path> --target claude -q
+  --output <workspace_path> --target all -q
 ```
 
 ## Status flow
 
 ```
-bash "$SKILL_DIR/scripts/workspace-setup.sh" status <workspace_path>
+bash "$SKILL_DIR/scripts/workspace-setup.sh" status <workspace_path> --target <target>
 npx @tacuchi/agent-factory list <workspace_path>
 ```
 
@@ -187,23 +195,21 @@ Then pass `--stack-csv` to the setup/add command so it persists in config.
 - Always run `--dry-run` and show output to user before any write command.
 - Always confirm with the user before invoking `agent-factory create`.
 - Never pass `-y` without explicit user approval in the current session.
-- Always use absolute paths — symlinks break with relative.
+- Always use absolute paths - symlinks break with relative.
 - Do not modify `settings.json` manually.
-- Single repo or monorepo (Nx/Turborepo) → do NOT use this skill.
+- Single repo or monorepo (Nx/Turborepo) -> do NOT use this skill.
 
 Replace `$SKILL_DIR` with the absolute path to this skill's directory.
 
 ## Agent hierarchy
 
-`coordinator-agent (opus)` → `repo-*-agent (sonnet)` per repo.
+`coordinator-agent (opus)` -> `repo-*-agent (sonnet)` per repo.
 Coordinator delegates to specialists via `Task`. Specialists execute autonomously.
 
 ## Compatibility
 
-Supported targets (one at a time, never combined):
-- `claude` → `.claude/agents/*.md` + `.agents/skills/*/SKILL.md`
-- `codex` → `.agents/*.md` + `.agents/skills/*/SKILL.md`
-- `gemini` → `.gemini/agents/*.md` + `.agents/skills/*/SKILL.md`
-- `crush` → `.crush.json` + `.agents/skills/*/SKILL.md`
-- `warp` → `.agents/skills/*/SKILL.md`
-- `AGENTS.md` → Universal context file (20+ tools)
+- All targets: `.agents/*.md` + `.agents/skills/*/SKILL.md` + `AGENTS.md`
+- Claude: `.claude/agents/*.md` + `CLAUDE.md` + `.claude/settings.json`
+- Gemini: `.gemini/agents/*.md` + `GEMINI.md`
+- Crush: `.crush.json`
+- Warp: `docs/warp-oz/environment-example.md`

@@ -8,6 +8,7 @@ TMPL_DIR="$SCRIPT_DIR/templates"
 OPT_YES=false
 OPT_DRY_RUN=false
 OPT_VERBOSE=false
+OPT_TARGET="claude"
 
 info()  { printf "\033[1;34m[info]\033[0m %s\n" "$*"; }
 warn()  { printf "\033[1;33m[warn]\033[0m %s\n" "$*"; }
@@ -64,12 +65,40 @@ derive_alias() {
   basename "$1" | tr '_.' '-' | cut -c1-30
 }
 
+# Target-aware path helpers
+target_context_file() {
+  case "$OPT_TARGET" in
+    claude) echo "CLAUDE.md" ;;
+    gemini) echo "GEMINI.md" ;;
+    *)      echo "" ;;
+  esac
+}
+
+target_config_dir() {
+  case "$OPT_TARGET" in
+    claude) echo ".claude" ;;
+    codex)  echo ".agents" ;;
+    gemini) echo ".gemini" ;;
+    crush)  echo ".crush" ;;
+    warp)   echo ".agents" ;;
+    *)      echo ".agents" ;;
+  esac
+}
+
+target_settings_file() {
+  case "$OPT_TARGET" in
+    claude) echo ".claude/settings.json" ;;
+    *)      echo "" ;;
+  esac
+}
+
 save_config() {
   local ws="$1"
-  local conf="$ws/.claude/.multirepo-space.conf"
+  local cfg_dir; cfg_dir=$(target_config_dir)
+  local conf="$ws/$cfg_dir/.multirepo-space.conf"
   if $OPT_DRY_RUN; then info "[dry-run] Would save config"; return 0; fi
   mkdir -p "$(dirname "$conf")"
-  echo "# workspace-setup config" > "$conf"
+  echo "# workspace-setup config (target=$OPT_TARGET)" > "$conf"
   for link in "$ws/repos"/*; do
     [[ -L "$link" ]] || continue
     local a; a=$(basename "$link")
@@ -82,8 +111,13 @@ save_config() {
 
 load_config() {
   local ws="$1"
-  local conf="$ws/.claude/.multirepo-space.conf"
+  local cfg_dir; cfg_dir=$(target_config_dir)
+  local conf="$ws/$cfg_dir/.multirepo-space.conf"
   _sk_clear
+  # Try target-specific config first, fall back to .claude (legacy)
+  if [[ ! -f "$conf" && -f "$ws/.claude/.multirepo-space.conf" ]]; then
+    conf="$ws/.claude/.multirepo-space.conf"
+  fi
   if [[ -f "$conf" ]]; then
     while IFS= read -r line; do
       [[ "$line" =~ ^REPO_ ]] || continue
@@ -133,13 +167,20 @@ regenerate_docs() {
     instructions="${instructions//\{\{$var\}\}/${!var}}"
   done
   write_file "$ws/AGENTS.md" "$instructions"
-  write_file "$ws/CLAUDE.md" "$instructions"
 
-  local settings; settings=$(template "$TMPL_DIR/settings.json.tmpl")
-  settings="${settings//\{\{additional_directories\}\}/$additional_dirs}"
-  write_file "$ws/.claude/settings.json" "$settings"
+  local ctx_file; ctx_file=$(target_context_file)
+  if [[ -n "$ctx_file" ]]; then
+    write_file "$ws/$ctx_file" "$instructions"
+  fi
 
-  verbose "Regenerated docs ($N repos)"
+  local settings_file; settings_file=$(target_settings_file)
+  if [[ -n "$settings_file" ]]; then
+    local settings; settings=$(template "$TMPL_DIR/settings.json.tmpl")
+    settings="${settings//\{\{additional_directories\}\}/$additional_dirs}"
+    write_file "$ws/$settings_file" "$settings"
+  fi
+
+  verbose "Regenerated docs ($N repos, target=$OPT_TARGET)"
 }
 
 cmd_setup() {
@@ -222,7 +263,7 @@ cmd_remove() {
 
   confirm "Remove '$alias'?" || { info "Aborted."; exit 0; }
 
-  for dir in ".agents" ".claude/agents"; do
+  for dir in ".agents" ".claude/agents" ".gemini/agents"; do
     local f="$ws/$dir/repo-${alias}-agent.md"
     if [[ -f "$f" ]]; then
       if $OPT_DRY_RUN; then info "[dry-run] Would remove: $f"
@@ -278,21 +319,34 @@ cmd_status() {
   fi
 
   echo ""
-  local agents_n=0 claude_n=0 skills_n=0 gemini_n=0 crush_ok="NO"
-  [[ -d "$ws/.agents" ]] && agents_n=$(find "$ws/.agents" -maxdepth 1 -name "*-agent.md" | wc -l | tr -d ' ')
-  [[ -d "$ws/.claude/agents" ]] && claude_n=$(find "$ws/.claude/agents" -maxdepth 1 -name "*-agent.md" | wc -l | tr -d ' ')
-  [[ -d "$ws/.agents/skills" ]] && skills_n=$(find "$ws/.agents/skills" -maxdepth 1 -type d -name "*-agent" | wc -l | tr -d ' ')
-  [[ -d "$ws/.gemini/agents" ]] && gemini_n=$(find "$ws/.gemini/agents" -maxdepth 1 -name "*-agent.md" | wc -l | tr -d ' ')
-  [[ -f "$ws/.crush.json" ]] && crush_ok="YES"
-  local parity="OK"
-  [[ "$agents_n" != "$claude_n" || "$agents_n" != "$skills_n" ]] && parity="MISMATCH" || true
+  local agents_n=0 claude_n=0 gemini_n=0 skills_n=0
+  local crush_cfg="MISSING" opencode_cfg="MISSING" warp_doc="MISSING"
+  [[ -d "$ws/.agents" ]] && agents_n=$(find "$ws/.agents" -maxdepth 1 -name "*-agent.md" | wc -l | xargs)
+  [[ -d "$ws/.claude/agents" ]] && claude_n=$(find "$ws/.claude/agents" -maxdepth 1 -name "*-agent.md" | wc -l | xargs)
+  [[ -d "$ws/.gemini/agents" ]] && gemini_n=$(find "$ws/.gemini/agents" -maxdepth 1 -name "*-agent.md" | wc -l | xargs)
+  [[ -d "$ws/.agents/skills" ]] && skills_n=$(find "$ws/.agents/skills" -maxdepth 1 -type d -name "*-agent" | wc -l | xargs)
+  [[ -f "$ws/.crush.json" ]] && crush_cfg="EXISTS"
+  [[ -f "$ws/.opencode.json" ]] && opencode_cfg="EXISTS"
+  [[ -f "$ws/docs/warp-oz/environment-example.md" ]] && warp_doc="EXISTS"
+  local parity_core="OK" parity_gemini="N/A"
+  [[ "$agents_n" != "$claude_n" || "$agents_n" != "$skills_n" ]] && parity_core="MISMATCH" || true
+  if [[ "$gemini_n" -gt 0 ]]; then
+    [[ "$gemini_n" != "$agents_n" ]] && parity_gemini="MISMATCH" || parity_gemini="OK"
+  fi
 
   info "Repos: $total (healthy: $healthy, broken: $broken)"
-  info "Agents: .agents/=$agents_n, .claude/agents/=$claude_n, skills/=$skills_n ($parity)"
-  info "        .gemini/agents/=$gemini_n, .crush.json=$crush_ok"
+  info "Agents: .agents/=$agents_n, .claude/agents/=$claude_n, .gemini/agents/=$gemini_n, skills/=$skills_n"
+  info "Parity: core=$parity_core, gemini=$parity_gemini"
+  info "Configs: .opencode.json=$opencode_cfg, .crush.json=$crush_cfg, warp-oz-doc=$warp_doc"
   info "AGENTS.md $([ -f "$ws/AGENTS.md" ] && echo "EXISTS" || echo "MISSING")"
-  info "CLAUDE.md $([ -f "$ws/CLAUDE.md" ] && echo "EXISTS" || echo "MISSING")"
-  info "settings.json $([ -f "$ws/.claude/settings.json" ] && echo "EXISTS" || echo "MISSING")"
+  local ctx_file; ctx_file=$(target_context_file)
+  if [[ -n "$ctx_file" ]]; then
+    info "$ctx_file $([ -f "$ws/$ctx_file" ] && echo "EXISTS" || echo "MISSING")"
+  fi
+  local settings_file; settings_file=$(target_settings_file)
+  if [[ -n "$settings_file" ]]; then
+    info "$settings_file $([ -f "$ws/$settings_file" ] && echo "EXISTS" || echo "MISSING")"
+  fi
 }
 
 usage() {
@@ -311,6 +365,7 @@ Options:
   -y, --yes                  Skip confirmations
   -n, --dry-run              Preview without writing
   -v, --verbose              Detailed output
+  -t, --target TARGET        CLI target: claude (default), codex, gemini, crush, warp
   --stacks "s1|s2|..."       Stack CSVs (pipe-separated, for setup)
   --alias NAME               Override alias (for add)
   --stack-csv "CSV"          Stack CSV string (for add)
@@ -333,6 +388,8 @@ main() {
       --alias=*)    OPT_ALIAS="${1#*=}" ;;
       --stack-csv)  shift; OPT_STACK_CSV="$1" ;;
       --stack-csv=*)OPT_STACK_CSV="${1#*=}" ;;
+      -t|--target)  shift; OPT_TARGET="$1" ;;
+      --target=*)   OPT_TARGET="${1#*=}" ;;
       *) if [[ -z "$cmd" ]]; then cmd="$1"; else args+=("$1"); fi ;;
     esac
     shift
