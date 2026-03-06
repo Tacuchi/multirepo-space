@@ -8,7 +8,11 @@ description: |
   "workspace status", "check workspace health", "init multi-repo",
   "orchestrate repos", "link repositories".
   Also use when user has multiple repos and needs a central
-  coordination point for AI agents (Claude Code, Codex, Gemini CLI).
+  coordination point for AI agents (Claude Code, Codex, Gemini CLI, Crush, Warp).
+metadata:
+  scope: [root]
+  auto_invoke: "Creating multi-repo workspaces, orchestrating AI agents across repos"
+  version: "2.0"
 ---
 
 # multirepo-space
@@ -115,7 +119,7 @@ Confirm with the user before running.
 ```
 npx @tacuchi/agent-factory create \
   --name repo-<alias> --role specialist --scope <repo_path> \
-  --output <workspace_path> --target all -q
+  --output <workspace_path> --target claude -q
 ```
 
 ### Step 4: Regenerate coordinator
@@ -148,7 +152,7 @@ Confirm with the user before running.
 npx @tacuchi/agent-factory create \
   --name coordinator --role coordinator --model opus \
   --specialists "<updated_csv_list>" --repo-count <updated_N> \
-  --output <workspace_path> --target all -q
+  --output <workspace_path> --target claude -q
 ```
 
 ## Status flow
@@ -196,4 +200,10 @@ Coordinator delegates to specialists via `Task`. Specialists execute autonomousl
 
 ## Compatibility
 
-`.claude/agents/*.md` (Claude Code) | `.agents/*.md` (Codex/Gemini/Cursor) | `.agents/skills/*/SKILL.md` (Warp/Codex/Cursor/Gemini CLI) | `AGENTS.md` (20+ tools)
+Supported targets (one at a time, never combined):
+- `claude` → `.claude/agents/*.md` + `.agents/skills/*/SKILL.md`
+- `codex` → `.agents/*.md` + `.agents/skills/*/SKILL.md`
+- `gemini` → `.gemini/agents/*.md` + `.agents/skills/*/SKILL.md`
+- `crush` → `.crush.json` + `.agents/skills/*/SKILL.md`
+- `warp` → `.agents/skills/*/SKILL.md`
+- `AGENTS.md` → Universal context file (20+ tools)

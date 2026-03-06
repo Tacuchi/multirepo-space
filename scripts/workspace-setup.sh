@@ -278,15 +278,18 @@ cmd_status() {
   fi
 
   echo ""
-  local agents_n=0 claude_n=0 skills_n=0
-  [[ -d "$ws/.agents" ]] && agents_n=$(find "$ws/.agents" -maxdepth 1 -name "*-agent.md" | wc -l | xargs)
-  [[ -d "$ws/.claude/agents" ]] && claude_n=$(find "$ws/.claude/agents" -maxdepth 1 -name "*-agent.md" | wc -l | xargs)
-  [[ -d "$ws/.agents/skills" ]] && skills_n=$(find "$ws/.agents/skills" -maxdepth 1 -type d -name "*-agent" | wc -l | xargs)
+  local agents_n=0 claude_n=0 skills_n=0 gemini_n=0 crush_ok="NO"
+  [[ -d "$ws/.agents" ]] && agents_n=$(find "$ws/.agents" -maxdepth 1 -name "*-agent.md" | wc -l | tr -d ' ')
+  [[ -d "$ws/.claude/agents" ]] && claude_n=$(find "$ws/.claude/agents" -maxdepth 1 -name "*-agent.md" | wc -l | tr -d ' ')
+  [[ -d "$ws/.agents/skills" ]] && skills_n=$(find "$ws/.agents/skills" -maxdepth 1 -type d -name "*-agent" | wc -l | tr -d ' ')
+  [[ -d "$ws/.gemini/agents" ]] && gemini_n=$(find "$ws/.gemini/agents" -maxdepth 1 -name "*-agent.md" | wc -l | tr -d ' ')
+  [[ -f "$ws/.crush.json" ]] && crush_ok="YES"
   local parity="OK"
   [[ "$agents_n" != "$claude_n" || "$agents_n" != "$skills_n" ]] && parity="MISMATCH" || true
 
   info "Repos: $total (healthy: $healthy, broken: $broken)"
   info "Agents: .agents/=$agents_n, .claude/agents/=$claude_n, skills/=$skills_n ($parity)"
+  info "        .gemini/agents/=$gemini_n, .crush.json=$crush_ok"
   info "AGENTS.md $([ -f "$ws/AGENTS.md" ] && echo "EXISTS" || echo "MISSING")"
   info "CLAUDE.md $([ -f "$ws/CLAUDE.md" ] && echo "EXISTS" || echo "MISSING")"
   info "settings.json $([ -f "$ws/.claude/settings.json" ] && echo "EXISTS" || echo "MISSING")"
