@@ -19,15 +19,17 @@ This SKILL orchestrates two tools:
 - `workspace-setup.sh` - bundled script for workspace infrastructure (dirs, symlinks, settings.json, AGENTS.md/CLAUDE.md)
 - `agent-factory` - npm CLI for creating AI agents (`npx @tacuchi/agent-factory`)
 
-## Target priority
+## Target determination
 
-Implementation and generation priority:
+Determine the target based on the CLI executing this skill:
+- Running in Claude Code → `--target claude`
+- Running in Codex → `--target codex`
+- Running in Gemini CLI → `--target gemini`
+- Running in Crush → `--target crush`
+- Running in Warp → `--target warp`
 
-1. `P0` Claude Code + Codex
-2. `P1` Gemini + OpenCode (legacy) + Crush
-3. `P2` Warp Oz (via skills portability)
-
-Always prefer `--target all` unless user explicitly asks for a single target.
+Use `<target>` placeholder below. Replace with the correct value for the current CLI.
+**One target at a time.** Never use `--target all`.
 
 ## Quick routing
 
@@ -72,22 +74,22 @@ Use `stackCsv` exactly as returned - pass full value to `--stacks`.
 ### Step 2: Preview workspace infrastructure (dry-run)
 ```
 bash "$SKILL_DIR/scripts/workspace-setup.sh" setup <workspace_path> <repo1> <repo2> ... \
-  --stacks "stackCsv1|stackCsv2|..." --dry-run
+  --stacks "stackCsv1|stackCsv2|..." --target <target> --dry-run
 ```
 
 Show output to user. Ask: "Proceed with these changes?" On approval:
 ```
 bash "$SKILL_DIR/scripts/workspace-setup.sh" setup <workspace_path> <repo1> <repo2> ... \
-  --stacks "stackCsv1|stackCsv2|..." -y
+  --stacks "stackCsv1|stackCsv2|..." --target <target> -y
 ```
-Creates: dirs, symlinks, settings.json, AGENTS.md, CLAUDE.md, config.
+Creates: dirs, symlinks, AGENTS.md (universal), target-specific context file and settings.
 
 ### Step 3: Create specialist agents
 Confirm with the user before running. Per repo:
 ```
 npx @tacuchi/agent-factory create \
   --name repo-<alias> --role specialist --scope <repo_path> \
-  --output <workspace_path> --target all -q
+  --output <workspace_path> --target <target> -q
 ```
 Auto-appends `-agent` suffix: `repo-<alias>` -> `repo-<alias>-agent.md`.
 
@@ -97,7 +99,7 @@ Confirm with the user before running.
 npx @tacuchi/agent-factory create \
   --name coordinator --role coordinator --model opus \
   --specialists "repo-<alias1>-agent,repo-<alias2>-agent,..." \
-  --repo-count <N> --output <workspace_path> --target all -q
+  --repo-count <N> --output <workspace_path> --target <target> -q
 ```
 `--specialists` list must use full names with `-agent` suffix.
 
@@ -111,13 +113,13 @@ npx @tacuchi/agent-factory detect <repo_path> --json -q
 ### Step 2: Preview add (dry-run)
 ```
 bash "$SKILL_DIR/scripts/workspace-setup.sh" add <workspace_path> <repo_path> \
-  --alias <alias> --stack-csv "<stackCsv>" --dry-run
+  --alias <alias> --stack-csv "<stackCsv>" --target <target> --dry-run
 ```
 
 Show output to user. Ask: "Proceed with these changes?" On approval:
 ```
 bash "$SKILL_DIR/scripts/workspace-setup.sh" add <workspace_path> <repo_path> \
-  --alias <alias> --stack-csv "<stackCsv>" -y
+  --alias <alias> --stack-csv "<stackCsv>" --target <target> -y
 ```
 
 ### Step 3: Create specialist
@@ -142,12 +144,12 @@ npx @tacuchi/agent-factory create \
 
 ### Step 1: Preview removal (dry-run)
 ```
-bash "$SKILL_DIR/scripts/workspace-setup.sh" remove <workspace_path> <alias> --dry-run
+bash "$SKILL_DIR/scripts/workspace-setup.sh" remove <workspace_path> <alias> --target <target> --dry-run
 ```
 
 Show output to user. Ask: "Proceed with these changes?" On approval:
 ```
-bash "$SKILL_DIR/scripts/workspace-setup.sh" remove <workspace_path> <alias> -y
+bash "$SKILL_DIR/scripts/workspace-setup.sh" remove <workspace_path> <alias> --target <target> -y
 ```
 Removes: symlink, agent files (`.agents/`, `.claude/agents/`, `.gemini/agents/`, `.agents/skills/`), regenerates docs.
 
@@ -164,7 +166,7 @@ npx @tacuchi/agent-factory create \
 ## Status flow
 
 ```
-bash "$SKILL_DIR/scripts/workspace-setup.sh" status <workspace_path>
+bash "$SKILL_DIR/scripts/workspace-setup.sh" status <workspace_path> --target <target>
 npx @tacuchi/agent-factory list <workspace_path>
 ```
 
@@ -206,7 +208,8 @@ Coordinator delegates to specialists via `Task`. Specialists execute autonomousl
 
 ## Compatibility
 
-- P0: `.claude/agents/*.md` + `.agents/*.md` + `.agents/skills/*/SKILL.md`
-- P1: `.gemini/agents/*.md` + `.opencode.json` + `.crush.json`
-- P2: `docs/warp-oz/environment-example.md` + `.agents/skills/*/SKILL.md`
-- Universal context: `AGENTS.md` (20+ tools)
+- All targets: `.agents/*.md` + `.agents/skills/*/SKILL.md` + `AGENTS.md`
+- Claude: `.claude/agents/*.md` + `CLAUDE.md` + `.claude/settings.json`
+- Gemini: `.gemini/agents/*.md` + `GEMINI.md`
+- Crush: `.crush.json`
+- Warp: `docs/warp-oz/environment-example.md`
